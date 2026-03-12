@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import game_state
+from game_state import GameState, Entity
 import random
 
 @dataclass
@@ -59,3 +59,79 @@ def initialize_combat(state):
     state.current_turn_index = 0
     state.round_number = 1
     state.in_combat = True
+
+def resolve_attack(action, state):
+    actor = state.get_entity(action.actor_id)
+    target = state.get_entity(action.target_id)
+
+    if actor is None or target is None:
+        return False, "Actor or Target do not exist"
+    
+    if action.action_type == "attack":
+        dmg = actor.weapon.damage + actor.stats.str
+        target.hp -= dmg
+        
+        if target.hp < 1:
+            state.scene.active_entity_ids.remove(target.id)
+            state.initiative_order.remove(target.id)
+
+def resolve_spell(action, state):
+    actor = state.get_entity(action.actor_id)
+    target = state.get_entity(action.target_id)
+
+    if actor is None or target is None:
+        return False, "Actor or Target do not exist"
+    
+    if action.action_type == "cast_spell":
+        dmg = actor.weapon.damage + actor.stats.int
+        target.hp -= dmg
+        actor.mp -= action.mp_cost
+
+        if target.hp < 1:
+            state.scene.active_entity_ids.remove(target.id)
+            state.initiative_order.remove(target.id)
+
+def advance_turn(state):
+    state.current_turn_index += 1
+    
+    if state.current_turn_index >= len(state.initiative_order):
+        state.round_number += 1
+        state.current_turn_index = 0
+
+def check_victory(state):
+    enemies = [e for e in state.get_active_entities() if e.type == "enemy"]
+    players = [p for p in state.get_active_entities() if p.type == "player"]
+
+    if len(players) == 0:
+        state.in_combat = False
+        state.initiative_order = []
+        state.current_turn_index = 0
+        return "players_lose"
+
+    if len(enemies) == 0:
+        state.in_combat = False
+        state.initiative_order = []
+        state.current_turn_index = 0
+        return "players_win"
+    
+    else:
+        return "ongoing"
+    
+def process_action(action, state):
+    check1 = validate_action(action, state)
+
+    if not check1[0]:
+        return check1[1]
+
+    if action.action_type == "attack":
+        resolve_attack(action, state)
+
+    if action.action_type == "cast_spell":
+        resolve_spell(action, state)
+
+    check2 = check_victory(state)
+
+    advance_turn(state)
+
+    return check2
+   
