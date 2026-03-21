@@ -1,0 +1,158 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Quest</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container screen active" id="login">
+  <h1>Quest</h1>
+  <input placeholder="Username">
+  <input type="password" placeholder="Password">
+  <button onclick="go('dashboard')">Login</button>
+  <button class="secondary" onclick="go('register')">Create New Account</button>
+</div>
+
+<div class="container screen" id="register">
+  <h1>Create Account</h1>
+  <input placeholder="Username">
+  <input placeholder="Email">
+  <input type="password" placeholder="Password">
+  <button onclick="go('login')">Create Account</button>
+  <button class="secondary" onclick="go('login')">Back</button>
+</div>
+
+<div class="container dashboard screen" id="dashboard">
+  <h1>Quest Dashboard</h1>
+  <button onclick="go('newgame')">Start New Adventure</button>
+  <button class="secondary" onclick="go('login')">Logout</button>
+</div>
+
+<div class="container screen" id="newgame">
+  <h1>New Game</h1>
+  <button onclick="go('host')">Host Game</button>
+  <button onclick="go('join')">Join Game</button>
+  <button class="secondary" onclick="go('dashboard')">Back</button>
+</div>
+
+<div class="container screen" id="host">
+  <h1>Hosting Session</h1>
+  <div class="code-box">A7F2K</div>
+  <p class="center">Waiting for Players: 1/2</p>
+  <button onclick="go('characters')">Start Game</button>
+  <button class="secondary" onclick="go('newgame')">Cancel</button>
+</div>
+
+<div class="container screen" id="join">
+  <h1>Join Game</h1>
+  <input placeholder="Enter Game Code">
+  <button onclick="go('characters')">Join</button>
+  <button class="secondary" onclick="go('newgame')">Back</button>
+</div>
+
+<div class="container dashboard screen" id="characters">
+  <h1>Select Your Class</h1>
+  <div class="class-grid">
+    <div class="class-card" onclick="selectClass(this)">
+      <h3>Warrior</h3>
+      <p>High STR</p>
+      <p>HP: 120</p>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <h3>Rogue</h3>
+      <p>High DEX</p>
+      <p>HP: 90</p>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <h3>Mage</h3>
+      <p>High INT</p>
+      <p>HP: 70</p>
+    </div>
+  </div>
+  <button class="mt-15" onclick="go('game')">Begin Adventure</button>
+</div>
+
+<div class="game-layout screen" id="game">
+
+  <!-- LEFT: DICE -->
+  <div class="sidebar">
+    <h3>Dice</h3>
+    <div class="dice-grid">
+      <div class="dice" onclick="rollDice(4)">D4</div>
+      <div class="dice" onclick="rollDice(6)">D6</div>
+      <div class="dice" onclick="rollDice(8)">D8</div>
+      <div class="dice" onclick="rollDice(10)">D10</div>
+      <div class="dice" onclick="rollDice(12)">D12</div>
+      <div class="dice" onclick="rollDice(20)">D20</div>
+    </div>
+    <p class="mt-15"><b>Last Roll</b></p>
+    <p id="diceResult">None</p>
+  </div>
+
+  <!-- CENTER: STORY -->
+  <div>
+    <div class="story-box" id="story">
+      <p><b>Dungeon Master:</b> You enter a dark cave. The air is damp and you hear distant growls deeper within.</p>
+    </div>
+    <div class="input-box">
+      <input id="actionInput" placeholder="Type your action...">
+      <button onclick="sendAction()">Send</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: STATS -->
+  <div class="sidebar">
+    <h3>Stats</h3>
+    <div class="stat">HP: 100</div>
+    <div class="stat">MP: 30</div>
+    <div class="stat">STR: 12</div>
+    <div class="stat">DEX: 8</div>
+    <div class="stat">INT: 5</div>
+
+    <h3 class="mt-15">Inventory</h3>
+    <p>• Sword</p>
+    <p>• Potion</p>
+    <button class="secondary mt-20" onclick="go('dashboard')">Exit Game</button>
+  </div>
+
+</div>
+
+<script>
+function go(screenId){
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.getElementById(screenId).classList.add('active')
+}
+
+function selectClass(card){
+  document.querySelectorAll('.class-card').forEach(c => c.style.border = 'none')
+  card.style.border = '2px solid #6366f1'
+}
+
+function sendAction(){
+  const input = document.getElementById('actionInput')
+  const story = document.getElementById('story')
+  if(input.value.trim() === '') return
+  
+  const p = document.createElement('p')
+  p.innerHTML = '<b>You:</b> ' + input.value
+  story.appendChild(p)
+  
+  const ai = document.createElement('p')
+  ai.innerHTML = '<b>Dungeon Master:</b> The AI will respond to "' + input.value + '" here.'
+  story.appendChild(ai)
+  
+  story.scrollTop = story.scrollHeight
+  input.value = ''
+}
+
+function rollDice(sides){
+  const roll = Math.floor(Math.random() * sides) + 1
+  document.getElementById('diceResult').innerText = 'D' + sides + ' rolled: ' + roll
+}
+</script>
+
+</body>
+</html>
