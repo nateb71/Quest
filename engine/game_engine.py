@@ -43,6 +43,8 @@ def validate_action(action, state):
             return False, "Spell cost not provided"
         if action.mp_cost > actor.mp:
             return False, "Actor does not have enough MP to cast the spell"
+    
+    return True, "Action is valid"
 
 def initialize_combat(state):
     entities = state.get_active_entities()
@@ -122,6 +124,10 @@ def process_action(action, state):
 
     if not check1[0]:
         return check1[1]
+    
+    # if narrative action skip engine entirely
+    if action.action_type == "narrative":
+        return "narrative"
 
     if action.action_type == "attack":
         resolve_attack(action, state)
