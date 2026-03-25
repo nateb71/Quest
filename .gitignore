@@ -1,0 +1,15 @@
+# environment and secrets
+.env
+*.env
+
+# python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# database file
+*.db
+
+# OS junk
+.DS_Store
+Thumbs.db
