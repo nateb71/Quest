@@ -4,8 +4,9 @@ import bcrypt
 import sqlite3
  
 import db
-from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon
-from engine import Action, validate_action, initialize_combat
+from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
+from game_engine import validate_action, initialize_combat, process_action
+from ai_layer import narrate_combat_result
  
 app = Flask(__name__)
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
@@ -278,48 +279,34 @@ def submit_action(session_id):
             "winner":       None,
         })
  
-    # ── Resolution (hand-off to engine when resolve_action is implemented) ──
-    # Your teammate will replace this block with:
-    #   state, result_message = engine.resolve_action(action, state)
-    #
-    # For now we stub it so the DB layer is fully testable end-to-end today.
-    result_message = (
-        f"{action.actor_id} used {action.action_name or action.action_type}"
-        f" on {action.target_id}."
-    )
- 
-    # Advance the turn index (wraps around)
-    if state.initiative_order:
-        state.current_turn_index = (
-            (state.current_turn_index + 1) % len(state.initiative_order)
-        )
- 
-    # Win / loss detection 
-    players = [e for e in state.entities.values() if e.type == "player"]
-    enemies = [e for e in state.entities.values() if e.type == "enemy"]
- 
-    all_players_dead = players and all(not p.is_alive() for p in players)
-    all_enemies_dead = enemies and all(not e.is_alive() for e in enemies)
-    session_over     = bool(all_players_dead or all_enemies_dead)
-    winner           = None
- 
-    # Step 5 (+ optional step 6): save state, close session if needed
+    engine_result = process_action(action, state)
+
+    if engine_result == "players_win":
+        result_message = narrate_combat_result(action, engine_result, state)
+        session_over = True
+        winner = "players"
+    elif engine_result == "players_lose":
+        result_message = narrate_combat_result(action, engine_result, state)
+        session_over = True
+        winner = None
+    elif engine_result == "ongoing":
+        result_message = narrate_combat_result(action, engine_result, state)
+        session_over = False
+        winner = None
+    else:
+        # validation error or narrative — don't save state
+        return jsonify({
+            "valid": False,
+            "message": engine_result,
+            "game_state": state.to_dict(),
+            "session_over": False,
+            "winner": None,
+        })
+    
     if session_over:
-        if all_enemies_dead:
-            winner = "players"
-            db.save_state_and_end_session(session_id, state, winner, "complete")
-        else:
-            db.save_state_and_end_session(session_id, state, None, "failed")
+        db.save_state_and_end_session(session_id, state, winner, "complete" if winner else "failed")
     else:
         db.save_game_state(session_id, state)
- 
-    return jsonify({
-        "valid":        True,
-        "message":      result_message,
-        "game_state":   state.to_dict(),
-        "session_over": session_over,
-        "winner":       winner,
-    })
  
  
 @app.route("/session/<int:session_id>/end", methods=["POST"])
