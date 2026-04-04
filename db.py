@@ -56,17 +56,43 @@ def init_db(path: str = DEFAULT_DB) -> None:
    
     with _transaction(path) as conn:
         # Users — one row per registered account, never modified after creation
-        conn.execute()
+        conn.execute("""
+                     CREATE TABLE IF NOT EXISTS Users (
+                        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username      TEXT    NOT NULL UNIQUE,
+                        password_hash TEXT    NOT NULL,
+                        created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+                        )""")
  
         # GameSessions — one row per game, tracks lifecycle status
-        conn.execute()
+        conn.execute("""
+                    CREATE TABLE IF NOT EXISTS GameSessions (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        invite_code TEXT    NOT NULL UNIQUE,
+                        status      TEXT    NOT NULL DEFAULT 'waiting',
+                        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                        )""")
  
         # SessionPlayers — join table, one row per player per session
-        conn.execute()
+        conn.execute(""" 
+                     CREATE TABLE IF NOT EXISTS SessionPlayers (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id     INTEGER NOT NULL REFERENCES GameSessions(id),
+                        user_id        INTEGER NOT NULL REFERENCES Users(id),
+                        character_name TEXT    NOT NULL,
+                        role           TEXT    NOT NULL,
+                        joined_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                        UNIQUE(session_id, user_id)
+                        )""")
  
         # GameState — one row per session, overwritten after EVERY resolved action
         # state_json is the full serialized GameState blob from game_state.py
-        conn.execute()
+        conn.execute("""
+                    CREATE TABLE IF NOT EXISTS GameState (
+                        session_id  INTEGER PRIMARY KEY REFERENCES GameSessions(id),
+                        state_json  TEXT    NOT NULL,
+                        updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+                        )""")
 
 
 
