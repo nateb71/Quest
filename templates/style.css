@@ -154,3 +154,66 @@ button:hover { background: #4f46e5; }
   margin: 15px 0;
   text-align: center;
 }
+
+/* History Section Styling */
+.history-section {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #334155;
+}
+
+.history-section h3 {
+    font-size: 16px;
+    margin-bottom: 15px;
+    color: #94a3b8;
+}
+
+.history-item {
+    background: #334155;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    transition: transform 0.2s;
+}
+
+.history-item:hover {
+    transform: translateX(5px);
+    background: #475569;
+}
+
+.history-tag {
+    background: #6366f1;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.history-date {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+/* Dice Roll Animation */
+@keyframes die-throw {
+    0% { transform: scale(0.5) rotate(-20deg); opacity: 0; }
+    50% { transform: scale(1.2) rotate(20deg); }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.roll-animation {
+    animation: die-throw 0.3s ease-out forwards;
+    color: #818cf8; /* Light indigo highlight */
+    text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+/* Optional: Make the dice buttons themselves "click" visually */
+.dice:active {
+    transform: scale(0.9);
+    background: #6366f1;
+}
