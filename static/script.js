@@ -100,19 +100,32 @@ document.addEventListener('click', async (e) => {
         }
 
         // Logic for Joining
-        if (goTo === 'characters' && target.closest('#join')) {
-            const code = document.querySelector('#join input').value;
-            const charName = prompt("Enter your character's name:");
-            const role = prompt("Choose role (warrior, rogue, mage):").toLowerCase();
-            const data = await apiRequest('/session/join', 'POST', { invite_code: code, character_name: charName, role: role });
-            if (data) {
-                currentSessionId = data.session_id;
-                myActorId = "player_2";
-                showScreen('game');
-                updateGameState();
-            }
-            return;
+if (goTo === 'characters' && target.closest('#join')) {
+    const code = document.querySelector('#join input').value;
+    const charName = prompt("Enter your character's name:");
+    const role = prompt("Choose role (warrior, rogue, mage):").toLowerCase();
+    
+    const data = await apiRequest('/session/join', 'POST', { 
+        invite_code: code, 
+        character_name: charName, 
+        role: role 
+    });
+
+    if (data) {
+        currentSessionId = data.session_id;
+        myActorId = "player_2";
+        showScreen('game');
+
+        // --- NEW: Clear hardcoded text and add DM intro ---
+        storyBox.innerHTML = ''; 
+        if (data.opening_narration) {
+            addMessage("Dungeon Master", data.opening_narration);
         }
+        
+        updateGameState();
+    }
+    return;
+}
 
         // Default navigation for everything else
         showScreen(goTo);
@@ -125,16 +138,26 @@ document.addEventListener('click', async (e) => {
         if (data) renderGame(data.game_state);
     }
 
-    function renderGame(state) {
-        const me = state.entities[myActorId];
-        if (!me) return;
-        document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
-        document.getElementById('stat-mp').innerText = `MP: ${me.mp}/${me.max_mp}`;
-        const currentTurnActor = state.initiative_order[state.current_turn_index];
-        const isMyTurn = currentTurnActor === myActorId;
-        sendBtn.disabled = !isMyTurn;
-        actionInput.placeholder = isMyTurn ? "Your turn! Describe action..." : "Waiting for others...";
+   function renderGame(state) {
+    const me = state.entities[myActorId];
+    if (!me) return;
+    
+    document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
+    document.getElementById('stat-mp').innerText = `MP: ${me.mp}/${me.max_mp}`;
+    
+    const currentTurnActor = state.initiative_order[state.current_turn_index];
+    const isMyTurn = currentTurnActor === myActorId;
+    
+    sendBtn.disabled = !isMyTurn;
+    actionInput.placeholder = isMyTurn ? "Your turn! Describe action..." : "Waiting for others...";
+
+    // --- NEW: Handle Initial Narration for the Host ---
+    // If the story box is empty (hardcoded text removed), 
+    // show the DM's opening scene description.
+    if (storyBox.children.length === 0 && state.scene.description_seed) {
+        addMessage("Dungeon Master", state.scene.description_seed);
     }
+}
 
     async function handlePlayerAction() {
         const text = actionInput.value.trim();

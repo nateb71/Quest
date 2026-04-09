@@ -175,45 +175,59 @@ def create_session():
  
 @app.route("/session/join", methods=["POST"])
 def join_session():
-  
     user_id, err = _require_auth()
     if err:
         return err
- 
+
     data      = request.get_json() or {}
     code      = data.get("invite_code", "").strip()
     char_name = data.get("character_name", "").strip()
     role      = data.get("role", "").strip().lower()
- 
-    if not code:
-        return _err("invite_code is required")
-    if not char_name:
-        return _err("character_name is required")
+
+    if not code or not char_name:
+        return _err("Invite code and character name are required")
     if role not in _ROLE_TEMPLATES:
-        return _err("role must be 'warrior', 'rogue', or 'mage'")
- 
+        return _err("Role must be 'warrior', 'rogue', or 'mage'")
+
     sess = db.get_session_by_invite(code)
     if not sess:
         return _err("Invite code not found", 404)
     if sess["status"] != "waiting":
-        return _err(f"Session is not open for joining (status: {sess['status']})", 400)
- 
-    session_id = sess["session_id"]
- 
+        return _err(f"Session not open (status: {sess['status']})", 400)
+
+    session_id = sess["id"]
+
     if db.count_session_players(session_id) >= 2:
         return _err("Session is already full", 400)
-    if db.is_player_in_session(session_id, user_id):
-        return _err("You are already in this session", 400)
- 
-    # Add player 2, activate session, build + save initial GameState
+    
+    # 1. Add Player 2 and activate
     db.add_session_player(session_id, user_id, char_name, role)
     db.set_session_active(session_id)
- 
-    players      = db.get_session_players(session_id)
+
+    # 2. Build the initial world state
+    players = db.get_session_players(session_id)
     initial_state = _build_initial_state(players)
+
+    # 3. TRIGGER DYNAMIC OPENING NARRATION
+    opening_action = Action(
+        actor_id="DM", 
+        action_type="narrate", 
+        action_name="start_game",
+        target_id="none"
+    )
+    
+    # Generate the story text using your AI layer
+    # We pass "start" as the engine_result so the AI knows to narrate the entrance
+    opening_story = narrate_combat_result(opening_action, "start", initial_state)
+
+    # 4. Save state and return the narration to the frontend
     db.save_game_state(session_id, initial_state)
- 
-    return jsonify({"session_id": session_id, "status": "active"})
+
+    return jsonify({
+        "session_id": session_id, 
+        "status": "active",
+        "opening_narration": opening_story # This goes directly to the UI
+    })
  
  
 @app.route("/session/<int:session_id>/state", methods=["GET"])
