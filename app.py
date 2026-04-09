@@ -1,19 +1,24 @@
 
-from flask import Flask, request, jsonify, session as flask_session
+from flask import Flask, request, jsonify, render_template, url_for, session as flask_session
+app = Flask(__name__)
+from flask_cors import CORS 
+CORS(app, supports_credentials=True, origins=["http://127.0.0.1:5000", "http://localhost:5000"], allow_headers=["Content-Type"])
 import bcrypt
 import sqlite3
- 
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
 from game_engine import validate_action, initialize_combat, process_action
 from ai_layer import narrate_combat_result
  
-app = Flask(__name__)
+
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
  
 db.init_db()   # create tables on startup if they don't exist
  
- 
+@app.route("/")
+def home():
+    return render_template("index.html")
+
 # Helpers 
  
 def _err(message: str, code: int = 400):
@@ -101,26 +106,23 @@ def _build_initial_state(players: list) -> GameState:
  
 @app.route("/auth/register", methods=["POST"])
 def register():
-  
     data = request.get_json() or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
- 
+
     if not username or not password:
-        return _err("username and password are required")
-    if len(username) < 3:
-        return _err("username must be at least 3 characters")
-    if len(password) < 6:
-        return _err("password must be at least 6 characters")
- 
+        return _err("Missing username or password")
+
+    # Hash the password before saving
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
- 
+
     try:
         user_id = db.create_user(username, pw_hash)
-    except sqlite3.IntegrityError:
-        return _err("Username already taken", 409)
- 
-    return jsonify({"user_id": user_id, "username": username}), 201
+        print(f"SUCCESS: User {username} created with ID {user_id}")
+        return jsonify({"user_id": user_id, "username": username}), 201
+    except Exception as e:
+        print(f"ERROR during registration: {e}")
+        return _err("Registration failed")
  
  
 @app.route("/auth/login", methods=["POST"])
@@ -136,8 +138,8 @@ def login():
     ):
         return _err("Invalid username or password", 401)
  
-    flask_session["user_id"] = user["user_id"]
-    return jsonify({"user_id": user["user_id"], "username": user["username"]})
+    flask_session["user_id"] = user["id"]
+    return jsonify({"user_id": user["id"], "username": user["username"]})
  
  
 @app.route("/auth/logout", methods=["POST"])
