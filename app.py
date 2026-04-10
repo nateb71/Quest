@@ -7,8 +7,8 @@ import bcrypt
 import sqlite3
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
-from game_engine import validate_action, initialize_combat, process_action
-from ai_layer import narrate_combat_result
+from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns
+from ai_layer import narrate_combat_result, interpret_action, generate_adventure_outline, propose_enemy_encounter, generate_scene_description
  
 
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
@@ -56,12 +56,53 @@ _ROLE_TEMPLATES = {
     "rogue":   dict(hp=22, max_hp=22, mp=0,  max_mp=0,
                     stats={"str": 10, "dex": 15, "int": 8},
                     weapon={"name": "Dagger",    "weapon_type": "dagger",  "damage": 4}),
-    "mage":    dict(hp=18, max_hp=18, mp=10, max_mp=10,
+    "mage":    dict(hp=18, max_hp=18, mp=30, max_mp=30,
                     stats={"str": 8,  "dex": 10, "int": 16},
                     weapon={"name": "Staff",     "weapon_type": "staff",   "damage": 4}),
 }
  
  
+def _advance_chapter(state) -> None:
+    state.adventure.current_chapter += 1
+    seed_key = f"chapter_{state.adventure.current_chapter}_seed"
+    state.scene.description_seed = state.adventure.story_flags.get(seed_key, "deeper dungeon passage")
+    state.in_combat = False
+    state.initiative_order = []
+    state.current_turn_index = 0
+    state.scene.active_entity_ids = [
+        eid for eid in state.scene.active_entity_ids
+        if state.entities[eid].type == "player"
+    ]
+
+
+def _build_enemy_entity(proposal: dict) -> Entity:
+    is_caster = proposal["role"] == "caster"
+
+    hp    = 14 if is_caster else 22
+    mp    = 8  if is_caster else 0
+    stats = {"str": 6, "dex": 8, "int": 14} if is_caster else {"str": 12, "dex": 8, "int": 4}
+
+    entity_id = proposal["name"].lower().replace(" ", "_") + "_1"
+
+    return Entity(
+        id=entity_id,
+        type="enemy",
+        role=proposal["role"],
+        level=1,
+        hp=hp,
+        max_hp=hp,
+        mp=mp,
+        max_mp=mp,
+        stats=Stats.from_dict(stats),
+        weapon=Weapon.from_dict({
+            "name":        proposal["weapon_name"],
+            "weapon_type": proposal["weapon_type"],
+            "damage":      proposal["weapon_damage"],
+        }),
+        items=[],
+    )
+
+
 def _build_initial_state(players: list) -> GameState:
  
     entities = {}
@@ -198,7 +239,7 @@ def join_session():
     if sess["status"] != "waiting":
         return _err(f"Session is not open for joining (status: {sess['status']})", 400)
  
-    session_id = sess["session_id"]
+    session_id = sess["id"]
  
     if db.count_session_players(session_id) >= 2:
         return _err("Session is already full", 400)
@@ -209,10 +250,26 @@ def join_session():
     db.add_session_player(session_id, user_id, char_name, role)
     db.set_session_active(session_id)
  
-    players      = db.get_session_players(session_id)
+    players       = db.get_session_players(session_id)
     initial_state = _build_initial_state(players)
+
+    outline = generate_adventure_outline("A Quest", "dungeon", "normal")
+    if outline:
+        initial_state.adventure.title     = outline["title"]
+        initial_state.adventure.boss_name = outline["boss_name"]
+        initial_state.adventure.story_flags = {
+            "chapter_1_seed": outline["chapter_1_seed"],
+            "chapter_2_seed": outline["chapter_2_seed"],
+            "chapter_3_seed": outline["chapter_3_seed"],
+        }
+        initial_state.scene.description_seed = outline["chapter_1_seed"]
+
+    opening = generate_scene_description(initial_state)
+    if opening:
+        initial_state.adventure.story_flags["opening_narration"] = opening
+
     db.save_game_state(session_id, initial_state)
- 
+
     return jsonify({"session_id": session_id, "status": "active"})
  
  
@@ -249,20 +306,37 @@ def submit_action(session_id):
     if not state:
         return _err("No game state found for this session", 404)
  
-    # Build Action from request body — mirrors engine.py's Action dataclass
     data = request.get_json() or {}
-    action = Action(
-        actor_id    = data.get("actor_id", ""),
-        action_type = data.get("action_type", ""),
-        target_id   = data.get("target_id", ""),
-        action_name = data.get("action_name", ""),
-    )
-    if "mp_cost" in data and data["mp_cost"] is not None:
-        action.mp_cost = int(data["mp_cost"])
- 
+    actor_id = data.get("actor_id", "").strip()
+    action_description = data.get("action_description", "").strip()
+
+    if not actor_id:
+        return _err("actor_id is required")
+    if not action_description:
+        return _err("action_description is required")
+
     # Start combat if it hasn't been initialised yet
     if not state.in_combat:
+        proposal = propose_enemy_encounter(state)
+        if proposal:
+            enemy = _build_enemy_entity(proposal)
+            state.entities[enemy.id] = enemy
+            state.scene.active_entity_ids.append(enemy.id)
+
         initialize_combat(state)
+        skip_enemy_turns(state)
+        db.save_game_state(session_id, state)
+
+    # Use AI to interpret natural language into a structured Action
+    action = interpret_action(action_description, actor_id, state)
+    if action is None:
+        return jsonify({
+            "valid": False,
+            "message": "I couldn't understand that action. Try something like 'I attack the goblin' or 'I cast a spell at the enemy'.",
+            "game_state": state.to_dict(),
+            "session_over": False,
+            "winner": None,
+        })
  
     # Validate using the engine — returns (bool, message)
     # NOTE: engine.validate_action has a bug where cast_spell checks fall
@@ -285,13 +359,19 @@ def submit_action(session_id):
 
     if engine_result == "players_win":
         result_message = narrate_combat_result(action, engine_result, state)
-        session_over = True
-        winner = "players"
+        if state.adventure.current_chapter < 3:
+            _advance_chapter(state)
+            session_over = False
+            winner = None
+        else:
+            session_over = True
+            winner = "players"
     elif engine_result == "players_lose":
         result_message = narrate_combat_result(action, engine_result, state)
         session_over = True
         winner = None
     elif engine_result == "ongoing":
+        skip_enemy_turns(state)
         result_message = narrate_combat_result(action, engine_result, state)
         session_over = False
         winner = None
@@ -309,6 +389,14 @@ def submit_action(session_id):
         db.save_state_and_end_session(session_id, state, winner, "complete" if winner else "failed")
     else:
         db.save_game_state(session_id, state)
+
+    return jsonify({
+        "valid": True,
+        "message": result_message,
+        "game_state": state.to_dict(),
+        "session_over": session_over,
+        "winner": winner,
+    })
  
  
 @app.route("/session/<int:session_id>/end", methods=["POST"])

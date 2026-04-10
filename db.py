@@ -56,6 +56,7 @@ def init_db(path: str = DEFAULT_DB) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 invite_code TEXT NOT NULL UNIQUE,
                 status TEXT NOT NULL DEFAULT 'waiting',
+                winner TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
 

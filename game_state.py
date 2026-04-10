@@ -71,7 +71,7 @@ class Entity:
             "hp": self.hp,
             "max_hp": self.max_hp,
             "mp": self.mp,
-            "max_mp": self.max_hp,
+            "max_mp": self.max_mp,
             "stats": self.stats.to_dict(),
             "weapon": self.weapon.to_dict(),
             "items": self.items,
