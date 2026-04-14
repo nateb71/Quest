@@ -1,38 +1,55 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log("Quest Script Initializing...");
 
-    // --- State ---
+    // ── State ────────────────────────────────────────────────────────────────
     const API_BASE = "http://127.0.0.1:5000";
     let currentSessionId = null;
-    let myActorId = null;
-    let pendingFlow = null;   // "host" or "join"
+    let myActorId        = null;
+    let pendingFlow      = null;   // "host" or "join"
     let pendingInviteCode = null;
-    let selectedRole = null;
+    let selectedRole     = null;
 
-    // --- Element refs ---
-    const screens        = document.querySelectorAll('.screen');
-    const actionInput    = document.getElementById('actionInput');
-    const sendBtn        = document.getElementById('sendBtn');
-    const storyBox       = document.getElementById('story');
-    const beginBtn       = document.getElementById('beginBtn');
-    const charNameInput  = document.getElementById('charNameInput');
+    // ── Socket.IO connection ─────────────────────────────────────────────────
+    // Connect once on page load; the server keeps the connection alive.
+    const socket = io(API_BASE, { withCredentials: true });
 
-    // --- Screen navigation ---
+    socket.on("connect", () => {
+        console.log("WebSocket connected:", socket.id);
+    });
+
+    socket.on("disconnect", () => {
+        console.log("WebSocket disconnected");
+        addMessage("System", "Connection lost. Please refresh.");
+    });
+
+    // Server-sent error messages
+    socket.on("error", ({ message }) => {
+        console.error("Socket error:", message);
+        addMessage("System", `Error: ${message}`);
+    });
+
+    // ── Element refs ─────────────────────────────────────────────────────────
+    const screens       = document.querySelectorAll('.screen');
+    const actionInput   = document.getElementById('actionInput');
+    const sendBtn       = document.getElementById('sendBtn');
+    const storyBox      = document.getElementById('story');
+    const beginBtn      = document.getElementById('beginBtn');
+    const charNameInput = document.getElementById('charNameInput');
+
+    // ── Screen navigation ────────────────────────────────────────────────────
     function showScreen(id) {
         screens.forEach(s => s.classList.remove('active'));
         const target = document.getElementById(id);
         if (target) target.classList.add('active');
 
-        if (id === 'game') loadGameScreen();
+        if (id === 'game') _onEnterGameScreen();
     }
 
-    async function loadGameScreen() {
-        if (!currentSessionId) return;
-        const data = await apiRequest(`/session/${currentSessionId}/state`);
-        if (!data) return;
-        if (data.game_state) renderGameState(data.game_state);
-        const narration = data.game_state?.adventure?.story_flags?.opening_narration;
-        if (narration) addMessage('Dungeon Master', narration);
+    function _onEnterGameScreen() {
+        // Nothing to fetch — state arrives via WebSocket events.
+        // Re-enable input in case it was locked from a previous session.
+        actionInput.disabled = false;
+        sendBtn.disabled = false;
     }
 
     // Simple nav for data-go buttons with no logic attached
@@ -41,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btn) showScreen(btn.getAttribute('data-go'));
     });
 
-    // --- API helper ---
+    // ── HTTP helper (auth + session setup only) ──────────────────────────────
     async function apiRequest(endpoint, method = 'GET', body = null) {
         try {
             const options = {
@@ -61,17 +78,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Auth ---
+    // ── Auth (stays HTTP) ────────────────────────────────────────────────────
     document.getElementById('loginBtn').addEventListener('click', async () => {
         const username = document.getElementById('loginUser').value.trim();
         const password = document.getElementById('loginPass').value;
         if (!username || !password) return alert('Enter username and password.');
         const data = await apiRequest('/auth/login', 'POST', { username, password });
-        if (data) {
-            showScreen('dashboard');
-        }
-
-
+        if (data) showScreen('dashboard');
     });
 
     document.getElementById('registerBtn').addEventListener('click', async () => {
@@ -93,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('login');
     });
 
-    // --- New game flow ---
+    // ── New game flow ────────────────────────────────────────────────────────
     document.getElementById('hostBtn').addEventListener('click', () => {
         pendingFlow = 'host';
         pendingInviteCode = null;
@@ -118,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('characters');
     });
 
-    // --- Character selection ---
+    // ── Character selection ──────────────────────────────────────────────────
     document.getElementById('classSelection').addEventListener('click', e => {
         const card = e.target.closest('.class-card');
         if (!card) return;
@@ -134,73 +147,113 @@ document.addEventListener('DOMContentLoaded', () => {
         beginBtn.disabled = !(selectedRole && charNameInput.value.trim());
     }
 
-   function renderGame(state) {
-    const me = state.entities[myActorId];
-    if (!me) return;
-    
-    document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
-    document.getElementById('stat-mp').innerText = `MP: ${me.mp}/${me.max_mp}`;
-    
-    const currentTurnActor = state.initiative_order[state.current_turn_index];
-    const isMyTurn = currentTurnActor === myActorId;
-    
-    sendBtn.disabled = !isMyTurn;
-    actionInput.placeholder = isMyTurn ? "Your turn! Describe action..." : "Waiting for others...";
-
-    // --- NEW: Handle Initial Narration for the Host ---
-    // If the story box is empty (hardcoded text removed), 
-    // show the DM's opening scene description.
-    if (storyBox.children.length === 0 && state.scene.description_seed) {
-        addMessage("Dungeon Master", state.scene.description_seed);
+    // ── Begin Adventure button ───────────────────────────────────────────────
     document.getElementById('beginBtn').addEventListener('click', async () => {
         const charName = charNameInput.value.trim();
         if (!selectedRole || !charName) return;
 
         if (pendingFlow === 'host') {
+            // 1. Create the session via HTTP (one-shot — returns invite code)
             const data = await apiRequest('/session/create', 'POST', {
                 character_name: charName,
                 role: selectedRole,
             });
-            if (data) {
-                currentSessionId = data.session_id;
-                myActorId = 'player_1';
-                document.getElementById('hostCode').innerText = data.invite_code;
-                document.getElementById('hostPlayerCount').innerText = 'Waiting for Players: 1/2';
-                showScreen('host');
-            }
+            if (!data) return;
+
+            currentSessionId = data.session_id;
+            myActorId = 'player_1';
+            document.getElementById('hostCode').innerText = data.invite_code;
+            document.getElementById('hostPlayerCount').innerText = 'Waiting for Players: 1/2';
+
+            // 2. Join the WS room so we receive the game_start broadcast
+            socket.emit("join_session_room", { session_id: currentSessionId });
+
+            showScreen('host');
+
         } else if (pendingFlow === 'join') {
+            // 1. Join via HTTP (triggers game_start broadcast to host)
             const data = await apiRequest('/session/join', 'POST', {
                 invite_code: pendingInviteCode,
                 character_name: charName,
                 role: selectedRole,
             });
-            if (data) {
-                currentSessionId = data.session_id;
-                myActorId = 'player_2';
-                showScreen('game');
-            }
+            if (!data) return;
+
+            currentSessionId = data.session_id;
+            myActorId = 'player_2';
+
+            // 2. Join the WS room
+            socket.emit("join_session_room", { session_id: currentSessionId });
+
+            // 3. Render the initial state we got back from the HTTP response
+            showScreen('game');
+            if (data.game_state)        renderGameState(data.game_state);
+            if (data.opening_narration) addMessage('Dungeon Master', data.opening_narration);
         }
     });
 
-    document.getElementById('cancelHostBtn').addEventListener('click', async () => {
+    // ── WebSocket: game_start (received by the HOST when player 2 joins) ─────
+    socket.on("game_start", (data) => {
+        console.log("game_start received", data);
+        currentSessionId = data.session_id;
+        showScreen('game');
+        if (data.game_state)        renderGameState(data.game_state);
+        if (data.opening_narration) addMessage('Dungeon Master', data.opening_narration);
+    });
+
+    // ── Cancel hosting ───────────────────────────────────────────────────────
+    document.getElementById('cancelHostBtn').addEventListener('click', () => {
         if (currentSessionId) {
-            await apiRequest(`/session/${currentSessionId}/end`, 'POST');
+            socket.emit("end_session", { session_id: currentSessionId });
             currentSessionId = null;
         }
         showScreen('newgame');
     });
 
-    // --- Game screen ---
-    document.getElementById('exitGameBtn').addEventListener('click', async () => {
+    // ── Game screen ──────────────────────────────────────────────────────────
+    document.getElementById('exitGameBtn').addEventListener('click', () => {
         if (currentSessionId) {
-            await apiRequest(`/session/${currentSessionId}/end`, 'POST');
+            socket.emit("end_session", { session_id: currentSessionId });
             currentSessionId = null;
         }
         showScreen('dashboard');
     });
 
+    // ── WebSocket: action_result (broadcast to both players after any action) ─
+    socket.on("action_result", (result) => {
+        if (result.message)    addMessage('Dungeon Master', result.message);
+        if (result.game_state) renderGameState(result.game_state);
+
+        if (result.session_over) {
+            const outcome = result.winner
+                ? 'Victory! Your party triumphed.'
+                : 'Defeat. Your party has fallen.';
+            addMessage('Dungeon Master', outcome);
+            actionInput.disabled = true;
+            sendBtn.disabled = true;
+            actionInput.placeholder = 'Game over.';
+
+            const returnBtn = document.createElement('button');
+            returnBtn.innerText = 'Return to Dashboard';
+            returnBtn.style.marginTop = '10px';
+            returnBtn.addEventListener('click', () => {
+                currentSessionId = null;
+                showScreen('dashboard');
+            });
+            storyBox.parentElement.appendChild(returnBtn);
+        }
+    });
+
+    // ── WebSocket: session_ended (other player quit) ──────────────────────────
+    socket.on("session_ended", ({ message }) => {
+        addMessage('System', message || 'The session has ended.');
+        actionInput.disabled = true;
+        sendBtn.disabled = true;
+        actionInput.placeholder = 'Session ended.';
+    });
+
+    // ── Render helpers ───────────────────────────────────────────────────────
     function renderGameState(gs) {
-        // Player stats
         const me = gs.entities && gs.entities[myActorId];
         if (me) {
             document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
@@ -210,10 +263,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Round number
         document.getElementById('round-number').innerText = gs.round_number || 1;
 
-        // Turn indicator
         const currentActor = gs.initiative_order && gs.initiative_order[gs.current_turn_index];
         const isMyTurn = currentActor === myActorId;
         const turnEl = document.getElementById('turn-indicator');
@@ -225,13 +276,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         actionInput.disabled = !isMyTurn;
         sendBtn.disabled = !isMyTurn;
-        actionInput.placeholder = isMyTurn ? 'Your turn! Describe your action...' : 'Waiting for others...';
+        actionInput.placeholder = isMyTurn
+            ? 'Your turn! Describe your action...'
+            : 'Waiting for others...';
 
-        // Enemy list
-        const enemyList = document.getElementById('enemy-list');
+        const enemyList   = document.getElementById('enemy-list');
         const placeholder = document.getElementById('enemy-placeholder');
         const enemies = Object.values(gs.entities || {}).filter(e => e.type === 'enemy' && e.hp > 0);
-        // Remove old enemy entries (keep the h3 and placeholder)
         enemyList.querySelectorAll('.enemy-entry').forEach(el => el.remove());
         if (enemies.length > 0) {
             if (placeholder) placeholder.style.display = 'none';
@@ -251,49 +302,29 @@ document.addEventListener('DOMContentLoaded', () => {
             placeholder.style.display = '';
         }
     }
-}
 
-    // --- Action submission ---
-    async function handlePlayerAction() {
+    // ── Action submission (now via WebSocket) ─────────────────────────────────
+    function handlePlayerAction() {
         const text = actionInput.value.trim();
         if (!text || !currentSessionId) return;
 
         addMessage('You', text);
         actionInput.value = '';
+        // Disable while we wait — re-enabled when action_result arrives
         actionInput.disabled = true;
         sendBtn.disabled = true;
 
-        const result = await apiRequest(`/session/${currentSessionId}/action`, 'POST', {
-            actor_id: myActorId,
+        socket.emit("submit_action", {
+            session_id:         currentSessionId,
+            actor_id:           myActorId,
             action_description: text,
         });
-
-        if (!result) return;
-
-        if (result.message) addMessage('Dungeon Master', result.message);
-        if (result.game_state) renderGameState(result.game_state);
-
-        if (result.session_over) {
-            const outcome = result.winner ? 'Victory! Your party triumphed.' : 'Defeat. Your party has fallen.';
-            addMessage('Dungeon Master', outcome);
-            actionInput.disabled = true;
-            sendBtn.disabled = true;
-            actionInput.placeholder = 'Game over.';
-
-            // Show return button
-            const returnBtn = document.createElement('button');
-            returnBtn.innerText = 'Return to Dashboard';
-            returnBtn.style.marginTop = '10px';
-            returnBtn.addEventListener('click', () => {
-                currentSessionId = null;
-                showScreen('dashboard');
-            });
-            storyBox.parentElement.appendChild(returnBtn);
-        }
     }
 
     sendBtn.addEventListener('click', handlePlayerAction);
-    actionInput.addEventListener('keypress', e => { if (e.key === 'Enter') handlePlayerAction(); });
+    actionInput.addEventListener('keypress', e => {
+        if (e.key === 'Enter') handlePlayerAction();
+    });
 
     function addMessage(sender, text) {
         const p = document.createElement('p');
@@ -302,6 +333,6 @@ document.addEventListener('DOMContentLoaded', () => {
         storyBox.scrollTop = storyBox.scrollHeight;
     }
 
-    // --- Init ---
+    // ── Init ─────────────────────────────────────────────────────────────────
     showScreen('login');
 });
