@@ -93,6 +93,17 @@ def resolve_spell(action, state):
             state.scene.active_entity_ids.remove(target.id)
             state.initiative_order.remove(target.id)
 
+def skip_enemy_turns(state):
+    for _ in range(len(state.initiative_order)):
+        if not state.initiative_order:
+            break
+        idx = state.current_turn_index % len(state.initiative_order)
+        current = state.get_entity(state.initiative_order[idx])
+        if current and current.type == "enemy":
+            advance_turn(state)
+        else:
+            break
+
 def advance_turn(state):
     state.current_turn_index += 1
     

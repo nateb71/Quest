@@ -143,6 +143,15 @@ button:hover { background: #4f46e5; }
   text-align: center;
   cursor: pointer;
   font-size: 14px;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.class-card:hover { border-color: #6366f1; }
+
+.class-card.selected {
+  border-color: #6366f1;
+  background: #3730a3;
 }
 
 .code-box {

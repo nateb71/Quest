@@ -12,27 +12,25 @@
     <h1>Quest</h1>
     <input type="text" id="loginUser" placeholder="Username">
     <input type="password" id="loginPass" placeholder="Password">
-    <button data-go="dashboard">Login</button>
+    <button id="loginBtn">Login</button>
     <button class="secondary" data-go="register">Create New Account</button>
 </div>
 
 <div class="container screen" id="register">
     <h1>Create Account</h1>
-    <input type="text" placeholder="Username">
-    <input type="email" placeholder="Email">
-    <input type="password" placeholder="Password">
-    <button data-go="login">Create Account</button>
+    <input type="text" id="regUser" placeholder="Username">
+    <input type="email" id="regEmail" placeholder="Email">
+    <input type="password" id="regPass" placeholder="Password">
+    <button id="registerBtn">Create Account</button>
     <button class="secondary" data-go="login">Back</button>
 </div>
 
 <div class="container dashboard screen" id="dashboard">
     <h1>Quest Dashboard</h1>
-    
     <div class="menu-actions">
         <button data-go="newgame">Start New Adventure</button>
-        <button class="secondary" data-go="login">Logout</button>
+        <button class="secondary" id="logoutBtn">Logout</button>
     </div>
-
     <div class="history-section">
         <h3>Recent Adventures</h3>
         <div id="historyList">
@@ -43,79 +41,76 @@
 
 <div class="container screen" id="newgame">
     <h1>New Game</h1>
-    <button data-go="host">Host Game</button>
-    <button data-go="join">Join Game</button>
+    <button id="hostBtn">Host Game</button>
+    <button id="joinNavBtn">Join Game</button>
     <button class="secondary" data-go="dashboard">Back</button>
 </div>
 
 <div class="container screen" id="host">
     <h1>Hosting Session</h1>
-    <div class="code-box">A7F2K</div>
-    <p class="center">Waiting for Players: 1/2</p>
-    <button data-go="characters">Start Game</button>
-    <button class="secondary" data-go="newgame">Cancel</button>
+    <div class="code-box" id="hostCode">------</div>
+    <p class="center" id="hostPlayerCount">Waiting for Players: 1/2</p>
+    <button class="secondary" id="cancelHostBtn">Cancel</button>
 </div>
 
 <div class="container screen" id="join">
     <h1>Join Game</h1>
-    <input type="text" placeholder="Enter Game Code">
-    <button data-go="characters">Join</button>
+    <input type="text" id="joinCodeInput" placeholder="Enter Game Code">
+    <button id="joinNavToCharsBtn">Join</button>
     <button class="secondary" data-go="newgame">Back</button>
 </div>
 
 <div class="container dashboard screen" id="characters">
     <h1>Select Your Class</h1>
     <div class="class-grid" id="classSelection">
-        <div class="class-card" data-class="Warrior">
+        <div class="class-card" data-class="warrior">
             <h3>Warrior</h3>
-            <p>High STR | HP: 120</p>
+            <p>STR 14 | HP: 30</p>
         </div>
-        <div class="class-card" data-class="Rogue">
+        <div class="class-card" data-class="rogue">
             <h3>Rogue</h3>
-            <p>High DEX | HP: 90</p>
+            <p>DEX 15 | HP: 22</p>
         </div>
-        <div class="class-card" data-class="Mage">
+        <div class="class-card" data-class="mage">
             <h3>Mage</h3>
-            <p>High INT | HP: 70</p>
+            <p>INT 16 | HP: 18 | MP: 10</p>
         </div>
     </div>
-    <button style="margin-top:15px" data-go="game">Begin Adventure</button>
+    <div style="margin-top:15px">
+        <input type="text" id="charNameInput" placeholder="Enter your character's name">
+    </div>
+    <button id="beginBtn" style="margin-top:10px" disabled>Begin Adventure</button>
 </div>
 
 <div class="game-layout screen" id="game">
     <div class="sidebar">
-        <h3>Dice</h3>
-        <div class="dice-grid">
-            <div class="dice" data-roll="4">D4</div>
-            <div class="dice" data-roll="6">D6</div>
-            <div class="dice" data-roll="8">D8</div>
-            <div class="dice" data-roll="10">D10</div>
-            <div class="dice" data-roll="12">D12</div>
-            <div class="dice" data-roll="20">D20</div>
-        </div>
-        <p style="margin-top:15px"><b>Last Roll</b></p>
-        <div id="diceResult">None</div>
+        <div id="turn-indicator" style="font-weight:bold; text-align:center; margin-bottom:8px;"></div>
+        <p style="opacity:0.5; font-size:12px; text-align:center;">Round: <span id="round-number">1</span></p>
     </div>
 
     <div>
         <div class="story-box" id="story">
+            <p><b>Dungeon Master:</b> Your adventure begins...</p>
         </div>
         <div class="input-box">
-            <input id="actionInput" type="text" placeholder="Type your action...">
-            <button id="sendBtn">Send</button>
+            <input id="actionInput" type="text" placeholder="Waiting for game to start..." disabled>
+            <button id="sendBtn" disabled>Send</button>
         </div>
     </div>
 
     <div class="sidebar">
         <h3>Stats</h3>
-        <div class="stat" id="stat-hp">HP: 100</div>
-        <div class="stat" id="stat-mp">MP: 30</div>
-        <div id="inventory">
-            <h3 style="margin-top:15px">Inventory</h3>
-            <p>• Sword</p>
-            <p>• Potion</p>
+        <div class="stat" id="stat-hp">HP: --</div>
+        <div class="stat" id="stat-mp">MP: --</div>
+        <div id="enemy-list" style="margin-top:15px">
+            <h3>Enemies</h3>
+            <p id="enemy-placeholder" style="opacity:0.5; font-size:12px;">No enemies yet.</p>
         </div>
-        <button style="margin-top:20px" class="secondary" data-go="dashboard">Exit</button>
+        <div id="inventory" style="margin-top:15px">
+            <h3>Inventory</h3>
+            <p id="inventory-weapon">--</p>
+        </div>
+        <button style="margin-top:20px" class="secondary" id="exitGameBtn">Exit</button>
     </div>
 </div>
 
