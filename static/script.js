@@ -269,7 +269,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const isMyTurn = currentActor === myActorId;
         const turnEl = document.getElementById('turn-indicator');
         if (gs.in_combat) {
-            turnEl.innerText = isMyTurn ? 'Your Turn!' : `Waiting: ${currentActor}`;
+            // Show the character's name instead of the raw entity ID
+            const currentEntity = gs.entities && gs.entities[currentActor];
+            const actorName = (currentEntity && currentEntity.character_name) || currentActor;
+            turnEl.innerText = isMyTurn ? 'Your Turn!' : `Waiting: ${actorName}`;
             turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
         } else {
             turnEl.innerText = '';
@@ -291,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 div.className = 'enemy-entry';
                 const pct = Math.max(0, Math.round((enemy.hp / enemy.max_hp) * 100));
                 div.innerHTML = `
-                    <p style="margin:4px 0; font-size:13px;">${enemy.id} (${enemy.role})</p>
+                    <p style="margin:4px 0; font-size:13px;">${enemy.character_name || enemy.id} (${enemy.role})</p>
                     <div style="background:#1e293b; border-radius:3px; height:6px; width:100%;">
                         <div style="background:#ef4444; height:6px; border-radius:3px; width:${pct}%;"></div>
                     </div>

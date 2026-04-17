@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, render_template, session as flask_session
+import random
 from flask_socketio import SocketIO, emit, join_room, leave_room
 app = Flask(__name__)
 from flask_cors import CORS
@@ -16,6 +17,10 @@ app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 socketio = SocketIO(app, cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000"], manage_session=False)
 
 db.init_db()   # create tables on startup if they don't exist
+
+# Adventure configuration
+MAX_CHAPTERS = 5          # how many chapters before the game ends
+ENEMIES_PER_CHAPTER = 2   # how many enemies players must defeat per chapter
 
 
 @app.route("/")
@@ -67,14 +72,20 @@ _ROLE_TEMPLATES = {
 def _advance_chapter(state) -> None:
     state.adventure.current_chapter += 1
     seed_key = f"chapter_{state.adventure.current_chapter}_seed"
-    state.scene.description_seed = state.adventure.story_flags.get(seed_key, "deeper dungeon passage")
+    state.scene.description_seed = state.adventure.story_flags.get(seed_key, "deeper passage")
     state.in_combat = False
     state.initiative_order = []
     state.current_turn_index = 0
+    state.adventure.enemies_defeated_this_chapter = 0  # reset for the new chapter
     state.scene.active_entity_ids = [
         eid for eid in state.scene.active_entity_ids
         if state.entities[eid].type == "player"
     ]
+    # Restore all players to full HP and MP at the start of each new chapter
+    for eid in state.scene.active_entity_ids:
+        entity = state.entities[eid]
+        entity.hp = entity.max_hp
+        entity.mp = entity.max_mp
 
 
 def _build_enemy_entity(proposal: dict) -> Entity:
@@ -120,6 +131,7 @@ def _build_initial_state(players: list) -> GameState:
             stats=Stats.from_dict(tmpl["stats"]),
             weapon=Weapon.from_dict(tmpl["weapon"]),
             items=[],
+            character_name=p["character_name"],
         )
         active_ids.append(entity_id)
     return GameState(
@@ -144,12 +156,13 @@ def _build_initial_state(players: list) -> GameState:
 def register():
     data = request.get_json() or {}
     username = data.get("username", "").strip()
+    email    = data.get("email", "").strip()
     password = data.get("password", "")
     if not username or not password:
         return _err("Missing username or password")
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     try:
-        user_id = db.create_user(username, pw_hash)
+        user_id = db.create_user(username, pw_hash, email)
         print(f"SUCCESS: User {username} created with ID {user_id}")
         return jsonify({"user_id": user_id, "username": username}), 201
     except Exception as e:
@@ -223,13 +236,35 @@ def join_session():
     players = db.get_session_players(session_id)
     initial_state = _build_initial_state(players)
 
-    opening_action = Action(
-        actor_id="DM",
-        action_type="narrate",
-        action_name="start_game",
-        target_id="none"
-    )
-    opening_story = narrate_combat_result(opening_action, "start", initial_state)
+    # Pick a random theme and difficulty so every adventure feels different
+    themes = [
+        "dungeon", "haunted forest", "ancient ruins", "pirate ship",
+        "volcanic mountain", "cursed swamp", "sky fortress", "undead catacombs"
+    ]
+    difficulties = ["easy", "normal", "hard", "brutal"]
+    theme = random.choice(themes)
+    difficulty = random.choice(difficulties)
+
+    # Generate a unique adventure outline from the AI
+    outline = generate_adventure_outline("A Quest", theme, difficulty)
+    if outline:
+        initial_state.adventure.title     = outline["title"]
+        initial_state.adventure.boss_name = outline["boss_name"]
+        # Store all 5 chapter seeds plus the narrative hooks in story_flags
+        initial_state.adventure.story_flags = {
+            "chapter_1_seed": outline["chapter_1_seed"],
+            "chapter_2_seed": outline["chapter_2_seed"],
+            "chapter_3_seed": outline["chapter_3_seed"],
+            "chapter_4_seed": outline["chapter_4_seed"],
+            "chapter_5_seed": outline["chapter_5_seed"],
+        }
+        # Merge in the narrative hooks the AI generated
+        initial_state.adventure.story_flags.update(outline.get("story_flags", {}))
+        # Set the opening scene seed
+        initial_state.scene.description_seed = outline["chapter_1_seed"]
+
+    # Generate an immersive opening scene description
+    opening_story = generate_scene_description(initial_state)
     db.save_game_state(session_id, initial_state)
 
     # Notify the host (player_1) via WebSocket that the game is starting
@@ -352,11 +387,27 @@ def on_submit_action(data):
 
     if engine_result == "players_win":
         result_message = narrate_combat_result(action, engine_result, state)
-        if state.adventure.current_chapter < 3:
+        state.adventure.enemies_defeated_this_chapter += 1
+
+        # Check if there are more enemies to fight this chapter
+        if state.adventure.enemies_defeated_this_chapter < ENEMIES_PER_CHAPTER:
+            # Clear the dead enemy and reset combat so a new one spawns next action
+            state.in_combat = False
+            state.initiative_order = []
+            state.current_turn_index = 0
+            state.scene.active_entity_ids = [
+                eid for eid in state.scene.active_entity_ids
+                if state.entities[eid].type == "player"
+            ]
+            session_over = False
+            winner = None
+        elif state.adventure.current_chapter < MAX_CHAPTERS:
+            # All enemies in this chapter beaten, move to the next chapter
             _advance_chapter(state)
             session_over = False
             winner = None
         else:
+            # Final chapter cleared, players win the whole adventure
             session_over = True
             winner = "players"
     elif engine_result == "players_lose":

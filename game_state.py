@@ -46,7 +46,8 @@ class Stats:
  
  
 class Entity:
-    def __init__(self, id, type, role, level, hp, max_hp, mp, max_mp, stats, weapon, items):
+    def __init__(self, id, type, role, level, hp, max_hp, mp, max_mp, stats, weapon, items,
+                 character_name=""):
         self.id = id
         self.type = type
         self.role = role
@@ -58,6 +59,7 @@ class Entity:
         self.stats = stats
         self.weapon = weapon
         self.items = items
+        self.character_name = character_name
  
     def is_alive(self):
         return self.hp > 0
@@ -75,6 +77,7 @@ class Entity:
             "stats": self.stats.to_dict(),
             "weapon": self.weapon.to_dict(),
             "items": self.items,
+            "character_name": self.character_name,
         }
  
     @staticmethod
@@ -91,16 +94,19 @@ class Entity:
             stats=Stats.from_dict(data["stats"]),
             weapon=Weapon.from_dict(data["weapon"]),
             items=data["items"],
+            character_name=data.get("character_name", ""),
         )
  
  
 class AdventureState:
-    def __init__(self, title, current_chapter, boss_name, boss_defeated, story_flags):
+    def __init__(self, title, current_chapter, boss_name, boss_defeated, story_flags,
+                 enemies_defeated_this_chapter=0):
         self.title = title
         self.current_chapter = current_chapter
         self.boss_name = boss_name
         self.boss_defeated = boss_defeated
         self.story_flags = story_flags
+        self.enemies_defeated_this_chapter = enemies_defeated_this_chapter
  
     def to_dict(self):
         return {
@@ -109,6 +115,7 @@ class AdventureState:
             "boss_name": self.boss_name,
             "boss_defeated": self.boss_defeated,
             "story_flags": self.story_flags,
+            "enemies_defeated_this_chapter": self.enemies_defeated_this_chapter,
         }
  
     @staticmethod
@@ -119,6 +126,7 @@ class AdventureState:
             boss_name=data["boss_name"],
             boss_defeated=data["boss_defeated"],
             story_flags=data["story_flags"],
+            enemies_defeated_this_chapter=data.get("enemies_defeated_this_chapter", 0),
         )
  
  
