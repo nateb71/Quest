@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("Quest Script Initializing...");
 
     // ── State ────────────────────────────────────────────────────────────────
-    const API_BASE = "http://127.0.0.1:5000";
+    const API_BASE = window.location.origin;
     let currentSessionId = null;
     let myActorId        = null;
     let pendingFlow      = null;   // "host" or "join"
@@ -36,14 +36,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const beginBtn      = document.getElementById('beginBtn');
     const charNameInput = document.getElementById('charNameInput');
 
+    const PUBLIC_SCREENS = new Set(['login', 'register']);
+
     // ── Screen navigation ────────────────────────────────────────────────────
     function showScreen(id) {
         screens.forEach(s => s.classList.remove('active'));
         const target = document.getElementById(id);
         if (target) target.classList.add('active');
-
+        if (window.location.hash !== `#${id}`) {
+            history.pushState({ screen: id }, '', `#${id}`);
+        }
         if (id === 'game') _onEnterGameScreen();
     }
+
+    window.addEventListener('popstate', async () => {
+        const id = window.location.hash.slice(1) || 'login';
+        if (!PUBLIC_SCREENS.has(id)) {
+            const user = await apiRequest('/auth/me');
+            if (!user) { showScreen('login'); return; }
+        }
+        if (id === 'game') _restoreGameSession();
+        showScreen(id);
+    });
 
     function _onEnterGameScreen() {
         // Nothing to fetch — state arrives via WebSocket events.
@@ -103,6 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
         await apiRequest('/auth/logout', 'POST');
         currentSessionId = null;
         myActorId = null;
+        localStorage.removeItem('quest_session_id');
+        localStorage.removeItem('quest_actor_id');
         showScreen('login');
     });
 
@@ -162,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             currentSessionId = data.session_id;
             myActorId = 'player_1';
+            _saveGameSession(currentSessionId, myActorId);
             document.getElementById('hostCode').innerText = data.invite_code;
             document.getElementById('hostPlayerCount').innerText = 'Waiting for Players: 1/2';
 
@@ -181,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             currentSessionId = data.session_id;
             myActorId = 'player_2';
+            _saveGameSession(currentSessionId, myActorId);
 
             // 2. Join the WS room
             socket.emit("join_session_room", { session_id: currentSessionId });
@@ -225,6 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result.game_state) renderGameState(result.game_state);
 
         if (result.session_over) {
+            localStorage.removeItem('quest_session_id');
+            localStorage.removeItem('quest_actor_id');
             const outcome = result.winner
                 ? 'Victory! Your party triumphed.'
                 : 'Defeat. Your party has fallen.';
@@ -246,6 +266,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── WebSocket: session_ended (other player quit) ──────────────────────────
     socket.on("session_ended", ({ message }) => {
+        localStorage.removeItem('quest_session_id');
+        localStorage.removeItem('quest_actor_id');
         addMessage('System', message || 'The session has ended.');
         actionInput.disabled = true;
         sendBtn.disabled = true;
@@ -266,21 +288,24 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('round-number').innerText = gs.round_number || 1;
 
         const currentActor = gs.initiative_order && gs.initiative_order[gs.current_turn_index];
-        const isMyTurn = currentActor === myActorId;
         const turnEl = document.getElementById('turn-indicator');
+        let isMyTurn;
         if (gs.in_combat) {
-            // Show the character's name instead of the raw entity ID
+            isMyTurn = currentActor === myActorId;
             const currentEntity = gs.entities && gs.entities[currentActor];
             const actorName = (currentEntity && currentEntity.character_name) || currentActor;
             turnEl.innerText = isMyTurn ? 'Your Turn!' : `Waiting: ${actorName}`;
             turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
         } else {
-            turnEl.innerText = '';
+            // Combat hasn't started yet — player_1 sends the first action to kick things off
+            isMyTurn = myActorId === 'player_1';
+            turnEl.innerText = isMyTurn ? 'Start the adventure!' : 'Waiting for player 1 to begin...';
+            turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
         }
         actionInput.disabled = !isMyTurn;
         sendBtn.disabled = !isMyTurn;
         actionInput.placeholder = isMyTurn
-            ? 'Your turn! Describe your action...'
+            ? 'Describe your action...'
             : 'Waiting for others...';
 
         const enemyList   = document.getElementById('enemy-list');
@@ -336,6 +361,33 @@ document.addEventListener('DOMContentLoaded', () => {
         storyBox.scrollTop = storyBox.scrollHeight;
     }
 
+    // ── Game session persistence ──────────────────────────────────────────────
+    function _saveGameSession(sessionId, actorId) {
+        localStorage.setItem('quest_session_id', sessionId);
+        localStorage.setItem('quest_actor_id', actorId);
+    }
+
+    function _restoreGameSession() {
+        if (!currentSessionId) {
+            currentSessionId = parseInt(localStorage.getItem('quest_session_id'));
+            myActorId = localStorage.getItem('quest_actor_id');
+            if (currentSessionId) {
+                socket.emit('join_session_room', { session_id: currentSessionId });
+            }
+        }
+    }
+
     // ── Init ─────────────────────────────────────────────────────────────────
-    showScreen('login');
+    async function _initApp() {
+        const hash = window.location.hash.slice(1);
+        const user = await apiRequest('/auth/me');
+        if (user) {
+            const target = (hash && !PUBLIC_SCREENS.has(hash)) ? hash : 'dashboard';
+            if (target === 'game') _restoreGameSession();
+            showScreen(target);
+        } else {
+            showScreen('login');
+        }
+    }
+    _initApp();
 });

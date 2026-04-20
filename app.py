@@ -1,9 +1,26 @@
 from flask import Flask, request, jsonify, render_template, session as flask_session
 import random
+import socket
 from flask_socketio import SocketIO, emit, join_room, leave_room
 app = Flask(__name__)
 from flask_cors import CORS
-CORS(app, supports_credentials=True, origins=["http://127.0.0.1:5000", "http://localhost:5000"], allow_headers=["Content-Type"])
+
+def _get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+_origins = ["http://127.0.0.1:5000", "http://localhost:5000"]
+_local_ip = _get_local_ip()
+if _local_ip:
+    _origins.append(f"http://{_local_ip}:5000")
+
+CORS(app, supports_credentials=True, origins=_origins, allow_headers=["Content-Type"])
 import bcrypt
 import sqlite3
 import db
@@ -14,7 +31,7 @@ from ai_layer import narrate_combat_result, interpret_action, generate_adventure
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
 # Initialize SocketIO — allow_upgrades=True enables the WS upgrade from HTTP
-socketio = SocketIO(app, cors_allowed_origins=["http://127.0.0.1:5000", "http://localhost:5000"], manage_session=False)
+socketio = SocketIO(app, cors_allowed_origins=_origins, manage_session=False)
 
 db.init_db()   # create tables on startup if they don't exist
 
@@ -189,6 +206,17 @@ def logout():
     return jsonify({"message": "Logged out"})
 
 
+@app.route("/auth/me", methods=["GET"])
+def me():
+    user_id = flask_session.get("user_id")
+    if not user_id:
+        return _err("Not logged in", 401)
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return _err("User not found", 401)
+    return jsonify({"user_id": user["id"], "username": user["username"]})
+
+
 # ── Session creation/joining (HTTP — one-shot setup) ──────────────────────────
 
 @app.route("/session/create", methods=["POST"])
@@ -229,6 +257,8 @@ def join_session():
     session_id = sess["id"]
     if db.count_session_players(session_id) >= 2:
         return _err("Session is already full", 400)
+    if db.is_player_in_session(session_id, user_id):
+        return _err("You cannot join your own session", 400)
 
     db.add_session_player(session_id, user_id, char_name, role)
     db.set_session_active(session_id)
@@ -479,4 +509,4 @@ def on_end_session(data):
 
 if __name__ == "__main__":
     # Use socketio.run instead of app.run so the WS server starts properly
-    socketio.run(app, debug=True)
+    socketio.run(app, host='0.0.0.0', debug=True)
