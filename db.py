@@ -98,7 +98,9 @@ def get_user_by_id(user_id: int, path: str = DEFAULT_DB):
 # --- GameSession Functions ---
 
 def create_session(path: str = DEFAULT_DB) -> tuple:
-    invite_code = secrets.token_urlsafe(8)
+    # Unambiguous uppercase alphanumeric — no O/0, I/1/L confusion
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    invite_code = "".join(secrets.choice(alphabet) for _ in range(6))
     with _transaction(path) as conn:
         cursor = conn.execute(
             "INSERT INTO GameSessions (invite_code) VALUES (?)", 

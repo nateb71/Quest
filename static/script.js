@@ -136,8 +136,17 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('join');
     });
 
+    document.getElementById('copyCodeBtn').addEventListener('click', () => {
+        const code = document.getElementById('hostCode').innerText;
+        navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById('copyCodeBtn');
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy Code'; }, 1500);
+        });
+    });
+
     document.getElementById('joinNavToCharsBtn').addEventListener('click', () => {
-        const code = document.getElementById('joinCodeInput').value.trim();
+        const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
         if (!code) return alert('Enter a game code.');
         pendingFlow = 'join';
         pendingInviteCode = code;

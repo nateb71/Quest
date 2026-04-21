@@ -31,7 +31,7 @@ from ai_layer import narrate_combat_result, interpret_action, generate_adventure
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
 # Initialize SocketIO — allow_upgrades=True enables the WS upgrade from HTTP
-socketio = SocketIO(app, cors_allowed_origins=_origins, manage_session=False)
+socketio = SocketIO(app, cors_allowed_origins=_origins)
 
 db.init_db()   # create tables on startup if they don't exist
 
