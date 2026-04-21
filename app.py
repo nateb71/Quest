@@ -25,8 +25,8 @@ import bcrypt
 import sqlite3
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
-from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns
-from ai_layer import narrate_combat_result, interpret_action, generate_adventure_outline, propose_enemy_encounter, generate_scene_description
+from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns, advance_turn, process_enemy_turns
+from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, interpret_action, generate_adventure_outline, propose_enemy_encounter, generate_scene_description
 
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
@@ -38,6 +38,7 @@ db.init_db()   # create tables on startup if they don't exist
 # Adventure configuration
 MAX_CHAPTERS = 5          # how many chapters before the game ends
 ENEMIES_PER_CHAPTER = 2   # how many enemies players must defeat per chapter
+NARRATIVE_BEFORE_ENCOUNTER = 3  # narrative actions each player takes before an enemy spawns
 
 
 @app.route("/")
@@ -91,14 +92,14 @@ def _advance_chapter(state) -> None:
     seed_key = f"chapter_{state.adventure.current_chapter}_seed"
     state.scene.description_seed = state.adventure.story_flags.get(seed_key, "deeper passage")
     state.in_combat = False
-    state.initiative_order = []
-    state.current_turn_index = 0
-    state.adventure.enemies_defeated_this_chapter = 0  # reset for the new chapter
+    state.adventure.enemies_defeated_this_chapter = 0
+    state.adventure.story_flags["_narrative_count"] = 0
     state.scene.active_entity_ids = [
         eid for eid in state.scene.active_entity_ids
         if state.entities[eid].type == "player"
     ]
-    # Restore all players to full HP and MP at the start of each new chapter
+    state.initiative_order = list(state.scene.active_entity_ids)
+    state.current_turn_index = 0
     for eid in state.scene.active_entity_ids:
         entity = state.entities[eid]
         entity.hp = entity.max_hp
@@ -157,13 +158,15 @@ def _build_initial_state(players: list) -> GameState:
             current_chapter=1,
             boss_name="Unknown",
             boss_defeated=False,
-            story_flags={},
+            story_flags={"_narrative_count": 0},
         ),
         scene=SceneState(
             description_seed="tavern entrance, torchlit, evening",
             active_entity_ids=active_ids,
         ),
         entities=entities,
+        initiative_order=list(active_ids),  # player turn order while out of combat
+        current_turn_index=0,
     )
 
 
@@ -334,32 +337,19 @@ def on_join_session_room(data):
 
 @socketio.on("submit_action")
 def on_submit_action(data):
-    """
-    Replaces the POST /session/<id>/action HTTP endpoint.
-
-    Payload: {
-        "session_id":        <int>,
-        "actor_id":          <str>,
-        "action_description": <str>
-    }
-
-    Broadcasts results to the whole session room so both players see the
-    update simultaneously without any polling.
-    """
     user_id = flask_session.get("user_id")
     if not user_id:
         emit("error", {"message": "Not logged in"})
         return
 
-    session_id        = data.get("session_id")
-    actor_id          = data.get("actor_id", "").strip()
+    session_id         = data.get("session_id")
+    actor_id           = data.get("actor_id", "").strip()
     action_description = data.get("action_description", "").strip()
 
     if not session_id or not actor_id or not action_description:
         emit("error", {"message": "session_id, actor_id, and action_description are required"})
         return
 
-    # Membership check
     sess = db.get_session(session_id)
     if not sess or sess["status"] != "active":
         emit("error", {"message": "Session not found or not active"})
@@ -375,7 +365,70 @@ def on_submit_action(data):
 
     room = f"session_{session_id}"
 
-    # Start combat if not yet initialised
+    def _broadcast(valid, message, session_over=False, winner=None):
+        socketio.emit("action_result", {
+            "valid":            valid,
+            "actor_id":         actor_id,
+            "actor_input":      action_description,
+            "message":          message,
+            "game_state":       state.to_dict(),
+            "session_over":     session_over,
+            "winner":           winner,
+        }, to=room)
+
+    # ── Step 1: Interpret the action BEFORE spawning enemies ──────────────────
+    # This lets the AI classify narrative vs. combat with the current scene state.
+    action = interpret_action(action_description, actor_id, state)
+
+    if action is None:
+        _broadcast(False, "I couldn't understand that action. Try describing it differently.")
+        return
+
+    # ── Step 2: Narrative actions ─────────────────────────────────────────────
+    if action.action_type == "narrative":
+        # Enforce turns in and out of combat using initiative_order
+        if state.initiative_order:
+            idx = state.current_turn_index % len(state.initiative_order)
+            if state.initiative_order[idx] != actor_id:
+                _broadcast(False, "It's not your turn yet.")
+                return
+
+        count = state.adventure.story_flags.get("_narrative_count", 0) + 1
+
+        if not state.in_combat and count >= NARRATIVE_BEFORE_ENCOUNTER:
+            # Time to spawn an encounter — reset counter and start combat
+            state.adventure.story_flags["_narrative_count"] = 0
+            proposal = propose_enemy_encounter(state)
+            if proposal:
+                enemy = _build_enemy_entity(proposal)
+                state.entities[enemy.id] = enemy
+                state.scene.active_entity_ids.append(enemy.id)
+                initialize_combat(state)
+                # Honour initiative — if enemy rolled higher they strike first
+                initial_attacks, initial_result = process_enemy_turns(state)
+                if initial_result == "players_lose":
+                    db.save_state_and_end_session(session_id, state, None, "failed")
+                    narration = narrate_encounter_start(action_description, actor_id, proposal["name"], state, initial_attacks)
+                    _broadcast(True, narration, True, None)
+                    return
+                narration = narrate_encounter_start(action_description, actor_id, proposal["name"], state, initial_attacks)
+            else:
+                # Fallback: just narrate if AI fails to propose an enemy
+                state.adventure.story_flags["_narrative_count"] = count
+                advance_turn(state)
+                narration = narrate_narrative_action(action_description, actor_id, state)
+        else:
+            state.adventure.story_flags["_narrative_count"] = count
+            advance_turn(state)
+            if state.in_combat:
+                skip_enemy_turns(state)
+            narration = narrate_narrative_action(action_description, actor_id, state)
+
+        db.save_game_state(session_id, state)
+        _broadcast(True, narration)
+        return
+
+    # ── Step 3: Combat action — spawn enemy if not yet in combat ─────────────
     if not state.in_combat:
         proposal = propose_enemy_encounter(state)
         if proposal:
@@ -384,60 +437,39 @@ def on_submit_action(data):
             state.scene.active_entity_ids.append(enemy.id)
         initialize_combat(state)
         skip_enemy_turns(state)
-        db.save_game_state(session_id, state)
 
-    # Interpret natural language → Action
-    action = interpret_action(action_description, actor_id, state)
-    if action is None:
-        emit("action_result", {
-            "valid":        False,
-            "message":      "I couldn't understand that action. Try something like 'I attack the goblin' or 'I cast a spell at the enemy'.",
-            "game_state":   state.to_dict(),
-            "session_over": False,
-            "winner":       None,
-        })
-        return
-
-    # Validate
+    # ── Step 4: Validate turn order ───────────────────────────────────────────
     result  = validate_action(action, state)
     valid   = result[0] if result is not None else True
     message = result[1] if result is not None else "Action is valid"
 
     if not valid:
-        emit("action_result", {
-            "valid":        False,
-            "message":      message,
-            "game_state":   state.to_dict(),
-            "session_over": False,
-            "winner":       None,
-        })
+        _broadcast(False, message)
         return
 
+    # ── Step 5: Process the combat action ─────────────────────────────────────
     engine_result = process_action(action, state)
 
     if engine_result == "players_win":
         result_message = narrate_combat_result(action, engine_result, state)
         state.adventure.enemies_defeated_this_chapter += 1
 
-        # Check if there are more enemies to fight this chapter
         if state.adventure.enemies_defeated_this_chapter < ENEMIES_PER_CHAPTER:
-            # Clear the dead enemy and reset combat so a new one spawns next action
             state.in_combat = False
-            state.initiative_order = []
-            state.current_turn_index = 0
+            state.adventure.story_flags["_narrative_count"] = 0
             state.scene.active_entity_ids = [
                 eid for eid in state.scene.active_entity_ids
                 if state.entities[eid].type == "player"
             ]
+            state.initiative_order = list(state.scene.active_entity_ids)
+            state.current_turn_index = 0
             session_over = False
             winner = None
         elif state.adventure.current_chapter < MAX_CHAPTERS:
-            # All enemies in this chapter beaten, move to the next chapter
             _advance_chapter(state)
             session_over = False
             winner = None
         else:
-            # Final chapter cleared, players win the whole adventure
             session_over = True
             winner = "players"
     elif engine_result == "players_lose":
@@ -445,18 +477,17 @@ def on_submit_action(data):
         session_over = True
         winner = None
     elif engine_result == "ongoing":
-        skip_enemy_turns(state)
-        result_message = narrate_combat_result(action, engine_result, state)
-        session_over = False
-        winner = None
+        enemy_attacks, enemy_result = process_enemy_turns(state)
+        if enemy_result == "players_lose":
+            result_message = narrate_round(action, enemy_attacks, "players_lose", state)
+            session_over = True
+            winner = None
+        else:
+            result_message = narrate_round(action, enemy_attacks, "ongoing", state)
+            session_over = False
+            winner = None
     else:
-        emit("action_result", {
-            "valid":        False,
-            "message":      engine_result,
-            "game_state":   state.to_dict(),
-            "session_over": False,
-            "winner":       None,
-        })
+        _broadcast(False, engine_result)
         return
 
     if session_over:
@@ -464,14 +495,7 @@ def on_submit_action(data):
     else:
         db.save_game_state(session_id, state)
 
-    # Broadcast to BOTH players in the room
-    socketio.emit("action_result", {
-        "valid":        True,
-        "message":      result_message,
-        "game_state":   state.to_dict(),
-        "session_over": session_over,
-        "winner":       winner,
-    }, to=room)
+    _broadcast(True, result_message, session_over, winner)
 
 
 @socketio.on("end_session")
