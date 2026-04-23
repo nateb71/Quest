@@ -61,7 +61,7 @@ def resolve_attack(action, state):
         return False, "Actor or Target do not exist"
     
     if action.action_type == "attack":
-        dmg = actor.weapon.damage + actor.stats.str
+        dmg = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.str // 4
         target.hp -= dmg
         
         if target.hp < 1:
@@ -74,15 +74,20 @@ def resolve_spell(action, state):
 
     if actor is None or target is None:
         return False, "Actor or Target do not exist"
-    
+
     if action.action_type == "cast_spell":
-        dmg = actor.weapon.damage + actor.stats.int
-        target.hp -= dmg
         actor.mp -= action.mp_cost
 
-        if target.hp < 1:
-            state.scene.active_entity_ids.remove(target.id)
-            state.initiative_order.remove(target.id)
+        if target.type == "player":
+            heal = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.int // 4
+            target.hp = min(target.hp + heal, target.max_hp)
+        else:
+            dmg = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.int // 4
+            target.hp -= dmg
+
+            if target.hp < 1:
+                state.scene.active_entity_ids.remove(target.id)
+                state.initiative_order.remove(target.id)
 
 def skip_enemy_turns(state):
     for _ in range(len(state.initiative_order)):
@@ -118,7 +123,7 @@ def process_enemy_turns(state):
             break
 
         target = random.choice(living_players)
-        dmg = max(1, current.weapon.damage + current.stats.str)
+        dmg = max(1, random.randint(1, max(1, current.weapon.damage)) + current.stats.str // 4)
         target.hp -= dmg
 
         attacks.append({

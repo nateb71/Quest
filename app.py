@@ -26,7 +26,7 @@ import sqlite3
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
 from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns, advance_turn, process_enemy_turns
-from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, interpret_action, generate_adventure_outline, propose_enemy_encounter, generate_scene_description
+from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, narrate_rest, interpret_action, generate_adventure_outline, propose_enemy_encounter, check_for_encounter, generate_scene_description
 
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
@@ -38,7 +38,11 @@ db.init_db()   # create tables on startup if they don't exist
 # Adventure configuration
 MAX_CHAPTERS = 5          # how many chapters before the game ends
 ENEMIES_PER_CHAPTER = 2   # how many enemies players must defeat per chapter
-NARRATIVE_BEFORE_ENCOUNTER = 3  # narrative actions each player takes before an enemy spawns
+NARRATIVE_MIN_BEFORE_ENCOUNTER = 2  # minimum narrative turns before AI can trigger an encounter
+REST_HEAL    = 8   # HP restored on short rest
+REST_MP      = 5   # MP restored on short rest
+VICTORY_HEAL = 5   # HP trickle after enemy kill
+VICTORY_MP   = 3   # MP trickle after enemy kill
 
 
 @app.route("/")
@@ -108,10 +112,10 @@ def _advance_chapter(state) -> None:
 
 def _build_enemy_entity(proposal: dict) -> Entity:
     is_caster = proposal["role"] == "caster"
-    hp    = 14 if is_caster else 22
+    hp    = 18 if is_caster else 28
     mp    = 8  if is_caster else 0
-    stats = {"str": 6, "dex": 8, "int": 14} if is_caster else {"str": 12, "dex": 8, "int": 4}
-    entity_id = proposal["name"].lower().replace(" ", "_") + "_1"
+    stats = {"str": 8, "dex": 14, "int": 14} if is_caster else {"str": 12, "dex": 12, "int": 4}
+    entity_id = proposal["name"].lower().replace(" ", "_") + f"_{proposal.get('_index', 1)}"
     return Entity(
         id=entity_id,
         type="enemy",
@@ -125,7 +129,7 @@ def _build_enemy_entity(proposal: dict) -> Entity:
         weapon=Weapon.from_dict({
             "name":        proposal["weapon_name"],
             "weapon_type": proposal["weapon_type"],
-            "damage":      proposal["weapon_damage"],
+            "damage":      min(6, max(4, proposal["weapon_damage"])),
         }),
         items=[],
     )
@@ -269,14 +273,13 @@ def join_session():
     players = db.get_session_players(session_id)
     initial_state = _build_initial_state(players)
 
-    # Pick a random theme and difficulty so every adventure feels different
+    # Pick a random theme for variety; difficulty is fixed for balanced play
     themes = [
         "dungeon", "haunted forest", "ancient ruins", "pirate ship",
         "volcanic mountain", "cursed swamp", "sky fortress", "undead catacombs"
     ]
-    difficulties = ["easy", "normal", "hard", "brutal"]
     theme = random.choice(themes)
-    difficulty = random.choice(difficulties)
+    difficulty = "normal"
 
     # Generate a unique adventure outline from the AI
     outline = generate_adventure_outline("A Quest", theme, difficulty)
@@ -394,31 +397,32 @@ def on_submit_action(data):
                 return
 
         count = state.adventure.story_flags.get("_narrative_count", 0) + 1
+        state.adventure.story_flags["_narrative_count"] = count
 
-        if not state.in_combat and count >= NARRATIVE_BEFORE_ENCOUNTER:
-            # Time to spawn an encounter — reset counter and start combat
-            state.adventure.story_flags["_narrative_count"] = 0
-            proposal = propose_enemy_encounter(state)
-            if proposal:
-                enemy = _build_enemy_entity(proposal)
-                state.entities[enemy.id] = enemy
-                state.scene.active_entity_ids.append(enemy.id)
+        encounter_triggered = False
+        if not state.in_combat and count >= NARRATIVE_MIN_BEFORE_ENCOUNTER:
+            # Ask the AI whether this story moment calls for combat
+            encounter_proposals = check_for_encounter(action_description, actor_id, state)
+            if encounter_proposals:
+                encounter_triggered = True
+                state.adventure.story_flags["_narrative_count"] = 0
+                enemy_names = []
+                for i, proposal in enumerate(encounter_proposals, start=1):
+                    proposal["_index"] = i
+                    enemy = _build_enemy_entity(proposal)
+                    state.entities[enemy.id] = enemy
+                    state.scene.active_entity_ids.append(enemy.id)
+                    enemy_names.append(proposal["name"])
                 initialize_combat(state)
-                # Honour initiative — if enemy rolled higher they strike first
                 initial_attacks, initial_result = process_enemy_turns(state)
                 if initial_result == "players_lose":
                     db.save_state_and_end_session(session_id, state, None, "failed")
-                    narration = narrate_encounter_start(action_description, actor_id, proposal["name"], state, initial_attacks)
+                    narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks)
                     _broadcast(True, narration, True, None)
                     return
-                narration = narrate_encounter_start(action_description, actor_id, proposal["name"], state, initial_attacks)
-            else:
-                # Fallback: just narrate if AI fails to propose an enemy
-                state.adventure.story_flags["_narrative_count"] = count
-                advance_turn(state)
-                narration = narrate_narrative_action(action_description, actor_id, state)
-        else:
-            state.adventure.story_flags["_narrative_count"] = count
+                narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks)
+
+        if not encounter_triggered:
             advance_turn(state)
             if state.in_combat:
                 skip_enemy_turns(state)
@@ -428,10 +432,35 @@ def on_submit_action(data):
         _broadcast(True, narration)
         return
 
+    # ── Step 2b: Rest action ──────────────────────────────────────────────────
+    if action.action_type == "rest":
+        if state.initiative_order:
+            idx = state.current_turn_index % len(state.initiative_order)
+            if state.initiative_order[idx] != actor_id:
+                _broadcast(False, "It's not your turn yet.")
+                return
+        if state.in_combat:
+            _broadcast(False, "You can't rest in the middle of combat!")
+            return
+        actor = state.get_entity(actor_id)
+        hp_before = actor.hp
+        mp_before = actor.mp
+        actor.hp = min(actor.hp + REST_HEAL, actor.max_hp)
+        actor.mp = min(actor.mp + REST_MP,   actor.max_mp)
+        hp_restored = actor.hp - hp_before
+        mp_restored = actor.mp - mp_before
+        advance_turn(state)
+        narration = narrate_rest(actor_id, hp_restored, mp_restored,
+                                 actor.hp, actor.max_hp, actor.mp, actor.max_mp, state)
+        db.save_game_state(session_id, state)
+        _broadcast(True, narration)
+        return
+
     # ── Step 3: Combat action — spawn enemy if not yet in combat ─────────────
     if not state.in_combat:
         proposal = propose_enemy_encounter(state)
         if proposal:
+            proposal["_index"] = 1
             enemy = _build_enemy_entity(proposal)
             state.entities[enemy.id] = enemy
             state.scene.active_entity_ids.append(enemy.id)
@@ -463,6 +492,11 @@ def on_submit_action(data):
             ]
             state.initiative_order = list(state.scene.active_entity_ids)
             state.current_turn_index = 0
+            for eid in state.scene.active_entity_ids:
+                entity = state.entities[eid]
+                if entity.type == "player" and entity.is_alive():
+                    entity.hp = min(entity.hp + VICTORY_HEAL, entity.max_hp)
+                    entity.mp = min(entity.mp + VICTORY_MP,   entity.max_mp)
             session_over = False
             winner = None
         elif state.adventure.current_chapter < MAX_CHAPTERS:

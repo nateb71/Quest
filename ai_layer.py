@@ -84,20 +84,23 @@ You must ALWAYS respond with ONLY a valid JSON object. No explanation, no extra 
 The JSON must have exactly these fields:
 {
     "actor_id": "the ID of the player performing the action",
-    "action_type": "attack", "cast_spell", or "narrative",
-    "target_id": "the ID of the target entity, or null for narrative actions",
-    "action_name": "short name of the action e.g. sword_strike, fireball, or look_around",
-    "mp_cost": null for attacks and narrative, or an integer cost for spells (default 5)
+    "action_type": "attack", "cast_spell", "narrative", or "rest",
+    "target_id": "the ID of the target entity, or null for narrative/rest actions",
+    "action_name": "short name of the action e.g. sword_strike, fireball, look_around, or short_rest",
+    "mp_cost": null for attacks, narrative, and rest; or an integer cost for spells (default 5)
 }
 
 Rules:
-- Use "narrative" when the player is exploring, looking around, moving, talking, or doing ANYTHING that is not a direct attack or spell on an enemy
+- Use "narrative" when the player is exploring, looking around, moving, talking, or doing ANYTHING that is not a direct attack, spell, or rest
 - Use "attack" ONLY when the player clearly intends to physically strike an enemy that exists in the scene
-- Use "cast_spell" ONLY when the player clearly intends to cast a spell at an enemy that exists in the scene
-- For "narrative", set target_id to null and mp_cost to null
-- For "attack" or "cast_spell", target_id must be one of the enemy IDs in active_entity_ids
+- Use "cast_spell" when the player intends to cast a spell — the target can be an enemy (to damage) OR a player ally (to heal)
+- Use "rest" when the player wants to rest, bandage wounds, catch their breath, meditate, or otherwise recover
+- For "narrative" and "rest", set target_id to null and mp_cost to null
+- For "attack", target_id must be one of the enemy IDs in active_entity_ids
+- For "cast_spell" targeting an enemy, target_id must be one of the enemy IDs in active_entity_ids
+- For "cast_spell" targeting a player ally to heal, target_id must be one of the player IDs in active_entity_ids
 - Never invent entity IDs. Only use IDs from the active_entity_ids list
-- If there are no enemies in the scene, always use "narrative" regardless of what the player says"""
+- If there are no enemies in the scene, always use "narrative" or "rest" regardless of what the player says"""
 
     user_message = f"""Game context:
 {json.dumps(context, indent=2)}
@@ -124,13 +127,18 @@ Convert this into a structured action JSON object."""
             print(f"AI response missing required field: {field}")
             return None
 
-    if action_data["action_type"] not in ["attack", "cast_spell", "narrative"]:
+    if action_data["action_type"] not in ["attack", "cast_spell", "narrative", "rest"]:
         print(f"AI returned invalid action_type: {action_data['action_type']}")
         return None
 
-    if action_data["action_type"] in ["attack", "cast_spell"]:
+    if action_data["action_type"] == "attack":
         if action_data["target_id"] not in state.scene.active_entity_ids:
             print(f"AI returned invalid target_id: {action_data['target_id']}")
+            return None
+
+    if action_data["action_type"] == "cast_spell":
+        if action_data["target_id"] not in state.scene.active_entity_ids:
+            print(f"AI returned invalid target_id for cast_spell: {action_data['target_id']}")
             return None
 
     return Action(
@@ -202,6 +210,14 @@ def narrate_round(action: Action, enemy_attacks: list, round_result: str, state:
     target_name  = target.character_name if target else str(action.target_id)
     actor_weapon = actor.weapon.name if actor else "weapon"
 
+    if target and target.type == "player":
+        player_action_line = (
+            f"- {actor_name} cast {action.action_name} to heal {target_name} "
+            f"(now at {target.hp}/{target.max_hp} HP)"
+        )
+    else:
+        player_action_line = f"- {actor_name} used {action.action_name} (with {actor_weapon}) against {target_name}"
+
     if enemy_attacks:
         atk_lines = "\n".join(
             f"- {a['enemy_name']} attacked {a['target_name']} for {a['damage']} damage "
@@ -212,14 +228,15 @@ def narrate_round(action: Action, enemy_attacks: list, round_result: str, state:
         atk_lines = "None — all enemies are dead or could not act."
 
     system_prompt = """You are a Dungeon Master narrator for a multiplayer D&D game.
-Narrate a full combat round covering the player's attack and any enemy counterattacks.
+Narrate a full combat round covering the player's action and any enemy counterattacks.
 
 Rules:
 - 3-6 sentences total
-- Narrate the player's attack first, then each enemy counterattack
+- Narrate the player's action first, then each enemy counterattack
 - Treat every listed mechanical outcome as absolute truth — never contradict the numbers
 - If an enemy deals damage, describe the hit vividly and convey the pain/danger
 - If a player reaches 0 HP, describe their collapse dramatically
+- If the player healed an ally, describe the restorative magic warmly — do NOT narrate it as an attack
 - Do not invent additional damage, misses, or events not listed below
 - End on the current tension level: triumphant if enemies are dead, grim if players took heavy damage"""
 
@@ -227,8 +244,8 @@ Rules:
 {json.dumps(context, indent=2)}
 
 Player action this turn:
-- {actor_name} used {action.action_name} (with {actor_weapon}) against {target_name}
-- Result after player attack: {round_result}
+{player_action_line}
+- Result after player action: {round_result}
 
 Enemy counterattacks after the player's turn:
 {atk_lines}
@@ -326,11 +343,52 @@ Narrate what happens as a direct result of this action. Subtly steer the party t
     return narration
 
 
-def narrate_encounter_start(action_description: str, actor_id: str, enemy_name: str,
+def narrate_rest(actor_id: str, hp_restored: int, mp_restored: int,
+                 new_hp: int, max_hp: int, new_mp: int, max_mp: int,
+                 state: GameState) -> str:
+    context = _build_context(state)
+    actor = state.get_entity(actor_id)
+    actor_name = actor.character_name if actor else actor_id
+    actor_role = actor.role if actor else "adventurer"
+
+    mp_note = (
+        f" They also regain some magical focus ({new_mp}/{max_mp} MP)." if mp_restored > 0 else ""
+    )
+
+    system_prompt = """You are a Dungeon Master narrator for a multiplayer D&D game.
+A player has taken a short rest to recover.
+
+Rules:
+- 2-3 sentences describing the recovery
+- Do NOT cite exact HP or MP numbers — convey the feeling instead (relief, steadied breathing, warmth returning)
+- Convey that the character is still hurt and the danger is not over — they are not fully healed
+- If magical energy was restored, briefly mention their focus or inner power returning
+- Do not invent items, events, or other characters"""
+
+    user_message = f"""Game context:
+{json.dumps(context, indent=2)}
+
+{actor_name} (a {actor_role}) took a short rest.
+HP recovered: {hp_restored} (now {new_hp}/{max_hp}).{mp_note}
+
+Narrate this recovery moment."""
+
+    narration = _call_openai(system_prompt, user_message)
+    if narration is None:
+        return f"{actor_name} catches their breath and tends to their wounds, feeling slightly restored."
+    return narration
+
+
+def narrate_encounter_start(action_description: str, actor_id: str, enemy_names: list,
                             state: GameState, initial_attacks: list = None) -> str:
     context = _build_context(state)
     actor = state.get_entity(actor_id)
     actor_name = actor.character_name if actor else actor_id
+
+    if len(enemy_names) == 1:
+        enemy_label = enemy_names[0]
+    else:
+        enemy_label = ", ".join(enemy_names[:-1]) + f" and {enemy_names[-1]}"
 
     if initial_attacks:
         atk_lines = "\n".join(
@@ -338,17 +396,19 @@ def narrate_encounter_start(action_description: str, actor_id: str, enemy_name: 
             f"({a['target_hp_remaining']} HP remaining) before the party could react"
             for a in initial_attacks
         )
-        initiative_note = f"The enemy won initiative and attacked first:\n{atk_lines}"
+        initiative_note = f"The enemies won initiative and attacked first:\n{atk_lines}"
     else:
         initiative_note = "The party won initiative — they act first this round."
 
+    enemy_count_note = f"{len(enemy_names)} enemy" if len(enemy_names) == 1 else f"{len(enemy_names)} enemies"
+
     system_prompt = """You are a Dungeon Master for a multiplayer D&D game.
-An enemy has just appeared and combat is beginning. Describe the encounter start vividly.
+Enemies have appeared and combat is beginning. Describe the encounter start vividly.
 
 Rules:
-- Briefly acknowledge what the party was doing when the enemy appeared
-- Introduce the enemy dramatically
-- If the enemy attacked first, describe those strikes as a surprise or ambush — make it sting
+- Briefly acknowledge what the party was doing when the enemies appeared
+- Introduce all enemies dramatically — if there are multiple, make the group feel threatening
+- If enemies attacked first, describe those strikes as a surprise or ambush — make it sting
 - If the party won initiative, convey the tension of the standoff and that it's their move
 - Address the whole party, not just one player
 - 3-5 sentences total
@@ -358,7 +418,7 @@ Rules:
 {json.dumps(context, indent=2)}
 
 {actor_name} was: "{action_description}"
-An enemy named "{enemy_name}" has appeared.
+{enemy_count_note} appeared: {enemy_label}
 {initiative_note}
 
 Narrate this encounter start."""
@@ -367,8 +427,8 @@ Narrate this encounter start."""
     if narration is None:
         if initial_attacks:
             hits = ", ".join(f"{a['enemy_name']} hits {a['target_name']} for {a['damage']}" for a in initial_attacks)
-            return f"A {enemy_name} ambushes the party! {hits}. Brace yourselves!"
-        return f"A {enemy_name} emerges from the shadows! Steel yourselves — combat begins!"
+            return f"{enemy_label} ambushes the party! {hits}. Brace yourselves!"
+        return f"{enemy_label} emerges from the shadows! Steel yourselves — combat begins!"
     return narration
  
  
@@ -429,6 +489,94 @@ Return a structured JSON adventure outline."""
     return outline
  
  
+def check_for_encounter(action_description: str, actor_id: str, state: GameState) -> Optional[list]:
+    """
+    Ask the AI whether a combat encounter should trigger right now.
+    Returns None if no encounter, or a list of 1-3 enemy proposal dicts if yes.
+    """
+    context = _build_context(state)
+    narrative_count = state.adventure.story_flags.get("_narrative_count", 0)
+    chapter_seed = state.adventure.story_flags.get(
+        f"chapter_{state.adventure.current_chapter}_seed", state.scene.description_seed
+    )
+
+    system_prompt = """You are a Dungeon Master deciding whether to trigger a combat encounter.
+
+You must ALWAYS respond with ONLY a valid JSON object. No explanation, no extra text.
+
+If no encounter should happen now, return exactly: {"trigger": false}
+
+If an encounter should trigger, return:
+{
+    "trigger": true,
+    "enemies": [
+        {
+            "name": "enemy name",
+            "role": "brute or caster",
+            "weapon_name": "name of the weapon",
+            "weapon_type": "dagger, sword, axe, or staff",
+            "weapon_damage": 5,
+            "flavor_text": "one sentence appearance description"
+        }
+    ]
+}
+
+Decision rules:
+- ONLY trigger if combat makes strong narrative sense at this exact moment
+- Think like a DM: does the party's current action logically lead them into danger?
+- Good triggers: party enters an enemy stronghold, investigates a known threat, reaches a location the chapter seed implies has enemies, walks into an obvious trap
+- Bad triggers: party is just exploring safely, doing routine travel, or recently finished a fight
+- Do NOT trigger just because several turns have passed — wait for a dramatically appropriate moment
+- Use 1 enemy for most skirmishes, 2-3 for setpieces (ambushes, guarded entrances, boss antechambers)
+- All enemies in one encounter must be thematically consistent with the scene and chapter
+- role must be exactly "brute" or "caster" — casters MUST use weapon_type "staff"
+- weapon_damage must be an integer between 4 and 6
+- Do NOT assign HP, MP, or stats — the engine handles those"""
+
+    user_message = f"""Game context:
+{json.dumps(context, indent=2)}
+
+Chapter {state.adventure.current_chapter} objective / setting: "{chapter_seed}"
+Final boss the party is hunting: {state.adventure.boss_name}
+Narrative turns since last combat: {narrative_count}
+
+The player just did: "{action_description}"
+
+Should a combat encounter trigger right now based on the story? If yes, what enemies fit this moment?"""
+
+    raw_response = _call_openai(system_prompt, user_message)
+
+    if raw_response is None:
+        print("check_for_encounter: no API response")
+        return None
+
+    try:
+        data = json.loads(raw_response)
+    except json.JSONDecodeError:
+        print(f"check_for_encounter: malformed JSON: {raw_response}")
+        return None
+
+    if not data.get("trigger"):
+        return None
+
+    enemies = data.get("enemies")
+    if not isinstance(enemies, list) or len(enemies) == 0:
+        print("check_for_encounter: trigger=true but no enemies list")
+        return None
+
+    valid = []
+    for e in enemies[:3]:
+        if not all(k in e for k in ["name", "role", "weapon_name", "weapon_type", "weapon_damage"]):
+            continue
+        if e["role"] not in ["brute", "caster"]:
+            continue
+        if e["weapon_type"] not in ["dagger", "sword", "axe", "staff"]:
+            continue
+        valid.append(e)
+
+    return valid if valid else None
+
+
 def propose_enemy_encounter(state: GameState) -> Optional[dict]:
     context = _build_context(state)
  

@@ -98,7 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = document.getElementById('loginPass').value;
         if (!username || !password) return alert('Enter username and password.');
         const data = await apiRequest('/auth/login', 'POST', { username, password });
-        if (data) showScreen('dashboard');
+        if (data) {
+            socket.disconnect();
+            socket.connect();
+            showScreen('dashboard');
+        }
     });
 
     document.getElementById('registerBtn').addEventListener('click', async () => {
