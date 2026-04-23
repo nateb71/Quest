@@ -98,7 +98,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = document.getElementById('loginPass').value;
         if (!username || !password) return alert('Enter username and password.');
         const data = await apiRequest('/auth/login', 'POST', { username, password });
-        if (data) showScreen('dashboard');
+        if (data) {
+            socket.disconnect();
+            socket.connect();
+            showScreen('dashboard');
+        }
     });
 
     document.getElementById('registerBtn').addEventListener('click', async () => {
@@ -136,8 +140,17 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('join');
     });
 
+    document.getElementById('copyCodeBtn').addEventListener('click', () => {
+        const code = document.getElementById('hostCode').innerText;
+        navigator.clipboard.writeText(code).then(() => {
+            const btn = document.getElementById('copyCodeBtn');
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy Code'; }, 1500);
+        });
+    });
+
     document.getElementById('joinNavToCharsBtn').addEventListener('click', () => {
-        const code = document.getElementById('joinCodeInput').value.trim();
+        const code = document.getElementById('joinCodeInput').value.trim().toUpperCase();
         if (!code) return alert('Enter a game code.');
         pendingFlow = 'join';
         pendingInviteCode = code;
@@ -239,6 +252,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── WebSocket: action_result (broadcast to both players after any action) ─
     socket.on("action_result", (result) => {
+        // Show the other player's typed action so everyone sees what was said
+        if (result.actor_id && result.actor_id !== myActorId && result.actor_input) {
+            const gs = result.game_state;
+            const actor = gs && gs.entities && gs.entities[result.actor_id];
+            const label = (actor && actor.character_name) || result.actor_id;
+            addMessage(label, result.actor_input);
+        }
         if (result.message)    addMessage('Dungeon Master', result.message);
         if (result.game_state) renderGameState(result.game_state);
 
@@ -276,6 +296,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Render helpers ───────────────────────────────────────────────────────
     function renderGameState(gs) {
+        // Adventure info
+        if (gs.adventure) {
+            document.getElementById('adventure-title').innerText = gs.adventure.title || '';
+            document.getElementById('chapter-info').innerText =
+                `Chapter ${gs.adventure.current_chapter} / 5`;
+            document.getElementById('boss-name').innerText = gs.adventure.boss_name || '—';
+        }
+
         const me = gs.entities && gs.entities[myActorId];
         if (me) {
             document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
@@ -289,19 +317,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const currentActor = gs.initiative_order && gs.initiative_order[gs.current_turn_index];
         const turnEl = document.getElementById('turn-indicator');
-        let isMyTurn;
+        const isMyTurn = currentActor === myActorId;
+        const currentEntity = gs.entities && gs.entities[currentActor];
+        const actorName = (currentEntity && currentEntity.character_name) || currentActor || 'other player';
         if (gs.in_combat) {
-            isMyTurn = currentActor === myActorId;
-            const currentEntity = gs.entities && gs.entities[currentActor];
-            const actorName = (currentEntity && currentEntity.character_name) || currentActor;
             turnEl.innerText = isMyTurn ? 'Your Turn!' : `Waiting: ${actorName}`;
-            turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
         } else {
-            // Combat hasn't started yet — player_1 sends the first action to kick things off
-            isMyTurn = myActorId === 'player_1';
-            turnEl.innerText = isMyTurn ? 'Start the adventure!' : 'Waiting for player 1 to begin...';
-            turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
+            turnEl.innerText = isMyTurn ? 'Your turn to act!' : `Waiting for ${actorName}...`;
         }
+        turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
         actionInput.disabled = !isMyTurn;
         sendBtn.disabled = !isMyTurn;
         actionInput.placeholder = isMyTurn

@@ -52,13 +52,14 @@
 <div class="container screen" id="host">
     <h1>Hosting Session</h1>
     <div class="code-box" id="hostCode">------</div>
+    <button class="secondary" id="copyCodeBtn">Copy Code</button>
     <p class="center" id="hostPlayerCount">Waiting for Players: 1/2</p>
     <button class="secondary" id="cancelHostBtn">Cancel</button>
 </div>
 
 <div class="container screen" id="join">
     <h1>Join Game</h1>
-    <input type="text" id="joinCodeInput" placeholder="Enter Game Code">
+    <input type="text" id="joinCodeInput" placeholder="Enter Game Code" style="text-transform:uppercase">
     <button id="joinNavToCharsBtn">Join</button>
     <button class="secondary" data-go="newgame">Back</button>
 </div>
@@ -89,6 +90,10 @@
     <div class="sidebar">
         <div id="turn-indicator" style="font-weight:bold; text-align:center; margin-bottom:8px;"></div>
         <p style="opacity:0.5; font-size:12px; text-align:center;">Round: <span id="round-number">1</span></p>
+        <hr style="border-color:#334155; margin:10px 0;">
+        <p id="adventure-title" style="font-size:12px; font-weight:bold; text-align:center; opacity:0.8;"></p>
+        <p id="chapter-info" style="font-size:11px; text-align:center; opacity:0.5;"></p>
+        <p style="font-size:11px; text-align:center; opacity:0.5;">Boss: <span id="boss-name">—</span></p>
     </div>
 
     <div>

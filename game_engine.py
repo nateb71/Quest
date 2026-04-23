@@ -61,7 +61,7 @@ def resolve_attack(action, state):
         return False, "Actor or Target do not exist"
     
     if action.action_type == "attack":
-        dmg = actor.weapon.damage + actor.stats.str
+        dmg = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.str // 4
         target.hp -= dmg
         
         if target.hp < 1:
@@ -74,15 +74,20 @@ def resolve_spell(action, state):
 
     if actor is None or target is None:
         return False, "Actor or Target do not exist"
-    
+
     if action.action_type == "cast_spell":
-        dmg = actor.weapon.damage + actor.stats.int
-        target.hp -= dmg
         actor.mp -= action.mp_cost
 
-        if target.hp < 1:
-            state.scene.active_entity_ids.remove(target.id)
-            state.initiative_order.remove(target.id)
+        if target.type == "player":
+            heal = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.int // 4
+            target.hp = min(target.hp + heal, target.max_hp)
+        else:
+            dmg = random.randint(1, max(1, actor.weapon.damage)) + actor.stats.int // 4
+            target.hp -= dmg
+
+            if target.hp < 1:
+                state.scene.active_entity_ids.remove(target.id)
+                state.initiative_order.remove(target.id)
 
 def skip_enemy_turns(state):
     for _ in range(len(state.initiative_order)):
@@ -94,6 +99,57 @@ def skip_enemy_turns(state):
             advance_turn(state)
         else:
             break
+
+
+def process_enemy_turns(state):
+    """
+    Execute all consecutive enemy turns, applying damage to players.
+    Returns (attacks, final_result) where attacks is a list of attack dicts
+    and final_result is "players_lose" if all players died, otherwise None.
+    """
+    attacks = []
+
+    for _ in range(len(state.initiative_order) + 1):
+        if not state.initiative_order or not state.in_combat:
+            break
+        idx = state.current_turn_index % len(state.initiative_order)
+        current_id = state.initiative_order[idx]
+        current = state.get_entity(current_id)
+        if current is None or current.type != "enemy":
+            break
+
+        living_players = [e for e in state.get_active_entities() if e.type == "player" and e.is_alive()]
+        if not living_players:
+            break
+
+        target = random.choice(living_players)
+        dmg = max(1, random.randint(1, max(1, current.weapon.damage)) + current.stats.str // 4)
+        target.hp -= dmg
+
+        attacks.append({
+            "enemy_id":            current_id,
+            "enemy_name":          current.character_name,
+            "enemy_role":          current.role,
+            "target_id":           target.id,
+            "target_name":         target.character_name,
+            "damage":              dmg,
+            "target_hp_remaining": max(0, target.hp),
+        })
+
+        if target.hp <= 0:
+            if target.id in state.scene.active_entity_ids:
+                state.scene.active_entity_ids.remove(target.id)
+            if target.id in state.initiative_order:
+                state.initiative_order.remove(target.id)
+            if not [e for e in state.get_active_entities() if e.type == "player"]:
+                state.in_combat = False
+                state.initiative_order = []
+                state.current_turn_index = 0
+                return attacks, "players_lose"
+
+        advance_turn(state)
+
+    return attacks, None
 
 def advance_turn(state):
     state.current_turn_index += 1
