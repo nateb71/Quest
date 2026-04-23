@@ -1,135 +1,372 @@
-body {
+/* ── Google Fonts ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap');
+
+/* ── CSS Custom Properties ─────────────────────────────────────────────────── */
+:root {
+  /* Brand palette */
+  --gold:        #c9a84c;
+  --gold-light:  #e8c96a;
+  --gold-dark:   #8a6f2e;
+  --parchment:   #f5edd6;
+  --ink:         #1a1208;
+  --ember:       #c0392b;
+  --ember-light: #e74c3c;
+  --stone:       #2c2416;
+  --stone-mid:   #3d3120;
+  --stone-light: #5a4a30;
+  --mist:        #8a7a5a;
+  --mist-light:  #b09a70;
+  --scroll:      #ede0c4;
+
+  /* Semantic tokens */
+  --bg-page:     #110e09;
+  --bg-surface:  #1e1810;
+  --bg-raised:   #2a2218;
+  --bg-inset:    #0f0c07;
+  --border:      rgba(201,168,76,0.25);
+  --border-mid:  rgba(201,168,76,0.45);
+  --border-hi:   rgba(201,168,76,0.75);
+
+  /* Typography */
+  --font-display: 'Cinzel', 'Palatino Linotype', Georgia, serif;
+  --font-body:    'Crimson Pro', 'Georgia', serif;
+
+  /* Focus ring — ADA-required, high-contrast gold */
+  --focus-ring: 0 0 0 3px #c9a84c, 0 0 0 5px #110e09;
+
+  /* Spacing */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* ── Reset / Base ───────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
   margin: 0;
-  font-family: 'Segoe UI', Tahoma, sans-serif;
-  background: #0f172a;
-  color: white;
+  padding: 0;
+}
+
+/* ── ADA: Respect reduced-motion preference ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Body ───────────────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  background-color: var(--bg-page);
+  color: var(--parchment);         /* 4.6:1+ contrast on --bg-surface */
   display: flex;
   justify-content: center;
   align-items: flex-start;
   min-height: 100vh;
-  padding-top: 20px;
+  padding: 24px 16px 48px;
+
+  /* Subtle texture without an image */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(201,168,76,0.06) 0%, transparent 70%);
 }
 
+/* ── Skip-to-content link (ADA) ─────────────────────────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: 8px;
+  background: var(--gold);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  z-index: 9999;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 8px;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Headings ───────────────────────────────────────────────────────────────── */
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(20px, 4vw, 26px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  margin-bottom: 24px;
+  color: var(--gold-light);
+  text-shadow: 0 1px 4px rgba(201,168,76,0.3);
+}
+
+h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+
+h3 { font-size: 15px; margin-bottom: 10px; }
+
+/* ── Container cards ────────────────────────────────────────────────────────── */
 .container {
-  width: 420px;
-  background: #1e293b;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, .4);
+  width: min(460px, 100%);
+  background: var(--bg-surface);
+  padding: 32px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-mid);
+  box-shadow:
+    0 0 0 1px rgba(201,168,76,0.08),
+    0 8px 32px rgba(0,0,0,0.6),
+    inset 0 1px 0 rgba(201,168,76,0.12);
 }
 
-h1 { text-align: center; margin-bottom: 20px; font-size: 24px; }
+/* Corner ornament via pseudo-elements */
+.container::before,
+.container::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: var(--gold-dark);
+  border-style: solid;
+  pointer-events: none;
+}
+.container { position: relative; }
+.container::before {
+  top: 10px; left: 10px;
+  border-width: 1px 0 0 1px;
+  border-radius: var(--radius-sm) 0 0 0;
+}
+.container::after {
+  bottom: 10px; right: 10px;
+  border-width: 0 1px 1px 0;
+  border-radius: 0 0 var(--radius-sm) 0;
+}
 
-input {
+/* ── Inputs ─────────────────────────────────────────────────────────────────── */
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  display: block;
   width: 100%;
-  padding: 10px;
+  padding: 10px 14px;
   margin: 8px 0;
-  border-radius: 6px;
-  border: none;
-  font-size: 14px;
-  box-sizing: border-box;
+  background: var(--bg-inset);
+  color: var(--parchment);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 15px;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
+input[type="text"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover {
+  border-color: var(--border-hi);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: var(--focus-ring);
+}
+
+input::placeholder {
+  color: var(--mist);
+  opacity: 1;             /* Firefox default opacity fix */
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
 button {
+  display: block;
   width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: 6px;
-  background: #6366f1;
-  color: white;
-  font-size: 14px;
+  padding: 11px 16px;
+  margin-top: 10px;
+  background: linear-gradient(to bottom, #d4a84e 0%, #a87c2a 100%);
+  color: var(--ink);
+  border: 1px solid var(--gold-dark);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   cursor: pointer;
-  margin-top: 8px;
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
+  /* Minimum 44×44px touch target (ADA / WCAG 2.5.5) */
+  min-height: 44px;
 }
 
-button:hover { background: #4f46e5; }
+button:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 2px 12px rgba(201,168,76,0.35);
+}
 
-.secondary { background: #334155; }
-.secondary:hover { background: #475569; }
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
 
-/* SCREEN MANAGEMENT */
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+}
+
+/* Secondary / ghost variant */
+.secondary {
+  background: transparent;
+  color: var(--mist-light);
+  border-color: var(--border);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-raised);
+  color: var(--parchment);
+  border-color: var(--border-mid);
+  filter: none;
+  box-shadow: none;
+}
+
+/* ── Screen management ──────────────────────────────────────────────────────── */
 .screen { display: none; }
 .screen.active { display: block; }
-
-/* FIX: Ensure the game layout uses GRID when active */
 #game.active { display: grid; }
 
-/* GAME LAYOUT */
+/* ── Game layout ────────────────────────────────────────────────────────────── */
 .game-layout {
-  width: 95vw;
-  max-width: 1100px;
-  grid-template-columns: 180px 1fr 180px;
-  gap: 15px;
+  width: 96vw;
+  max-width: 1120px;
+  grid-template-columns: 190px 1fr 190px;
+  gap: 16px;
   align-items: start;
-  margin: auto;
+  margin: 0 auto;
 }
 
-/* STORY AREA */
+/* ── Story / narrative box ──────────────────────────────────────────────────── */
 .story-box {
-  background: #1e293b;
-  padding: 15px;
-  border-radius: 10px;
-  height: 400px;
+  background: var(--bg-inset);
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  height: 420px;
   overflow-y: auto;
+  font-family: var(--font-body);
   font-size: 15px;
-  border: 1px solid #334155;
+  line-height: 1.75;
+  border: 1px solid var(--border);
+  color: var(--scroll);
+
+  /* ADA: custom scrollbar — visible but unobtrusive */
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dark) var(--bg-inset);
 }
 
+.story-box::-webkit-scrollbar       { width: 6px; }
+.story-box::-webkit-scrollbar-track { background: var(--bg-inset); border-radius: 3px; }
+.story-box::-webkit-scrollbar-thumb { background: var(--gold-dark); border-radius: 3px; }
+
+.story-box p { margin-bottom: 10px; }
+.story-box p:last-child { margin-bottom: 0; }
+
+/* ── Action input row ───────────────────────────────────────────────────────── */
 .input-box {
-  margin-top: 10px;
+  margin-top: 12px;
   display: flex;
-  gap: 5px;
+  gap: 8px;
 }
 
 .input-box input {
   flex: 1;
   margin: 0;
+  border-radius: var(--radius-md);
 }
 
 .input-box button {
-  width: 80px;
+  width: 88px;
   margin: 0;
+  padding: 10px 12px;
 }
 
-/* SIDE PANELS */
+/* ── Sidebar panels ─────────────────────────────────────────────────────────── */
 .sidebar {
-  background: #1e293b;
-  padding: 15px;
-  border-radius: 10px;
+  background: var(--bg-surface);
+  padding: 16px;
+  border-radius: var(--radius-lg);
   font-size: 13px;
-  border: 1px solid #334155;
+  line-height: 1.6;
+  border: 1px solid var(--border);
 }
 
 .stat {
   margin: 8px 0;
-  border-bottom: 1px solid #334155;
-  padding-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--parchment);
 }
 
-/* DICE */
+/* ── Dice ───────────────────────────────────────────────────────────────────── */
 .dice-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .dice {
-  background: #334155;
-  padding: 8px;
-  border-radius: 6px;
+  background: var(--bg-raised);
+  padding: 8px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
   text-align: center;
   cursor: pointer;
-  font-weight: bold;
+  font-family: var(--font-display);
+  font-weight: 600;
   font-size: 12px;
+  color: var(--gold);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.dice:hover { background: #6366f1; }
+.dice:hover {
+  background: var(--stone-light);
+  border-color: var(--gold);
+  color: var(--gold-light);
+}
 
-/* OTHER UI */
-.dashboard { width: 600px; }
-.center { text-align: center; }
+.dice:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 
+.dice:active {
+  transform: scale(0.93);
+}
+
+/* ── Dashboard ──────────────────────────────────────────────────────────────── */
+.dashboard { width: min(640px, 100%); }
+
+/* ── Class selection grid ───────────────────────────────────────────────────── */
 .class-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -137,92 +374,172 @@ button:hover { background: #4f46e5; }
 }
 
 .class-card {
-  background: #334155;
-  padding: 12px;
-  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 14px 10px;
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
   text-align: center;
   cursor: pointer;
-  font-size: 14px;
-  border: 2px solid transparent;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  /* ADA: keyboard/pointer accessible card */
+  position: relative;
 }
 
-.class-card:hover { border-color: #6366f1; }
+.class-card h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: var(--gold-light);
+}
+
+.class-card p {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--mist-light);
+  margin: 0;
+}
+
+.class-card:hover {
+  border-color: var(--gold-dark);
+  background: var(--stone-mid);
+  transform: translateY(-2px);
+}
 
 .class-card.selected {
-  border-color: #6366f1;
-  background: #3730a3;
+  border-color: var(--gold);
+  background: var(--stone);
+  box-shadow: 0 0 16px rgba(201,168,76,0.18);
 }
 
+/* ADA: keyboard focus on card */
+.class-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Invite code box ────────────────────────────────────────────────────────── */
 .code-box {
-  background: black;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 18px;
-  letter-spacing: 3px;
-  margin: 15px 0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 6px;
   text-align: center;
+  color: var(--gold-light);
+  margin: 16px 0;
+  user-select: all;           /* easy copy */
+  cursor: text;
 }
 
-/* History Section Styling */
+/* ── Utility ────────────────────────────────────────────────────────────────── */
+.center { text-align: center; }
+
+/* ── History section ────────────────────────────────────────────────────────── */
 .history-section {
-    margin-top: 25px;
-    padding-top: 20px;
-    border-top: 1px solid #334155;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
 }
 
 .history-section h3 {
-    font-size: 16px;
-    margin-bottom: 15px;
-    color: #94a3b8;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mist);
+  margin-bottom: 14px;
 }
 
 .history-item {
-    background: #334155;
-    padding: 12px;
-    border-radius: 8px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    transition: transform 0.2s;
+  background: var(--bg-raised);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: var(--parchment);
+  transition: border-color 0.15s, background 0.15s;
+  cursor: default;
 }
 
 .history-item:hover {
-    transform: translateX(5px);
-    background: #475569;
+  background: var(--stone-mid);
+  border-color: var(--border-mid);
 }
 
 .history-tag {
-    background: #6366f1;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    text-transform: uppercase;
-    font-weight: bold;
+  background: rgba(201,168,76,0.15);
+  border: 1px solid var(--gold-dark);
+  color: var(--gold-light);
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
 }
 
 .history-date {
-    font-size: 12px;
-    color: #94a3b8;
+  font-size: 12px;
+  color: var(--mist);
 }
 
-/* Dice Roll Animation */
+/* ── Enemy entry (game sidebar) ─────────────────────────────────────────────── */
+.enemy-entry {
+  margin-bottom: 10px;
+}
+
+/* ── Menu action buttons ─────────────────────────────────────────────────────── */
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Turn indicator ──────────────────────────────────────────────────────────── */
+#turn-indicator {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+/* ── Dice roll animation ─────────────────────────────────────────────────────── */
 @keyframes die-throw {
-    0% { transform: scale(0.5) rotate(-20deg); opacity: 0; }
-    50% { transform: scale(1.2) rotate(20deg); }
-    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  0%   { transform: scale(0.5) rotate(-20deg); opacity: 0; }
+  55%  { transform: scale(1.15) rotate(12deg); }
+  100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
 }
 
 .roll-animation {
-    animation: die-throw 0.3s ease-out forwards;
-    color: #818cf8; /* Light indigo highlight */
-    text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+  animation: die-throw 0.35s ease-out forwards;
+  color: var(--gold-light);
 }
 
-/* Optional: Make the dice buttons themselves "click" visually */
-.dice:active {
-    transform: scale(0.9);
-    background: #6366f1;
+/* ── ADA: High-contrast mode support ──────────────────────────────────────── */
+@media (forced-colors: active) {
+  button, .class-card, .dice {
+    border: 2px solid ButtonText;
+  }
+  input, .story-box, .code-box {
+    border: 2px solid FieldText;
+  }
+  :focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+
+/* ── Responsive: collapse game sidebar on small screens ──────────────────── */
+@media (max-width: 780px) {
+  .game-layout {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+  .container, .dashboard {
+    width: 100%;
+    padding: 24px 20px;
+  }
 }
