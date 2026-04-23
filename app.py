@@ -26,7 +26,7 @@ import sqlite3
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
 from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns, advance_turn, process_enemy_turns
-from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, narrate_rest, interpret_action, generate_adventure_outline, propose_enemy_encounter, check_for_encounter, generate_scene_description
+from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, narrate_rest, narrate_chapter_transition, interpret_action, generate_adventure_outline, propose_enemy_encounter, check_for_encounter, generate_scene_description
 
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
@@ -43,6 +43,7 @@ REST_HEAL    = 8   # HP restored on short rest
 REST_MP      = 5   # MP restored on short rest
 VICTORY_HEAL = 5   # HP trickle after enemy kill
 VICTORY_MP   = 3   # MP trickle after enemy kill
+MAX_RESTS_PER_CHAPTER = 2           # rests allowed per chapter
 
 
 @app.route("/")
@@ -98,6 +99,7 @@ def _advance_chapter(state) -> None:
     state.in_combat = False
     state.adventure.enemies_defeated_this_chapter = 0
     state.adventure.story_flags["_narrative_count"] = 0
+    state.adventure.story_flags["_rests_used"] = 0
     state.scene.active_entity_ids = [
         eid for eid in state.scene.active_entity_ids
         if state.entities[eid].type == "player"
@@ -111,15 +113,24 @@ def _advance_chapter(state) -> None:
 
 
 def _build_enemy_entity(proposal: dict) -> Entity:
-    is_caster = proposal["role"] == "caster"
-    hp    = 18 if is_caster else 28
-    mp    = 8  if is_caster else 0
-    stats = {"str": 8, "dex": 14, "int": 14} if is_caster else {"str": 12, "dex": 12, "int": 4}
+    role = proposal["role"]
+    if role == "minion":
+        hp, mp = 10, 0
+        stats  = {"str": 8, "dex": 12, "int": 4}
+        dmg_lo, dmg_hi = 3, 5
+    elif role == "brute":
+        hp, mp = 32, 0
+        stats  = {"str": 14, "dex": 10, "int": 4}
+        dmg_lo, dmg_hi = 5, 7
+    else:  # caster
+        hp, mp = 14, 10
+        stats  = {"str": 6, "dex": 14, "int": 14}
+        dmg_lo, dmg_hi = 3, 5
     entity_id = proposal["name"].lower().replace(" ", "_") + f"_{proposal.get('_index', 1)}"
     return Entity(
         id=entity_id,
         type="enemy",
-        role=proposal["role"],
+        role=role,
         level=1,
         hp=hp,
         max_hp=hp,
@@ -129,7 +140,7 @@ def _build_enemy_entity(proposal: dict) -> Entity:
         weapon=Weapon.from_dict({
             "name":        proposal["weapon_name"],
             "weapon_type": proposal["weapon_type"],
-            "damage":      min(6, max(4, proposal["weapon_damage"])),
+            "damage":      min(dmg_hi, max(dmg_lo, proposal["weapon_damage"])),
         }),
         items=[],
     )
@@ -162,7 +173,7 @@ def _build_initial_state(players: list) -> GameState:
             current_chapter=1,
             boss_name="Unknown",
             boss_defeated=False,
-            story_flags={"_narrative_count": 0},
+            story_flags={"_narrative_count": 0, "_rests_used": 0},
         ),
         scene=SceneState(
             description_seed="tavern entrance, torchlit, evening",
@@ -368,6 +379,13 @@ def on_submit_action(data):
 
     room = f"session_{session_id}"
 
+    def _get_next_player_name():
+        if not state.initiative_order:
+            return None
+        next_id = state.initiative_order[state.current_turn_index % len(state.initiative_order)]
+        entity = state.get_entity(next_id)
+        return entity.character_name if entity and entity.type == "player" else None
+
     def _broadcast(valid, message, session_over=False, winner=None):
         socketio.emit("action_result", {
             "valid":            valid,
@@ -420,7 +438,8 @@ def on_submit_action(data):
                     narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks)
                     _broadcast(True, narration, True, None)
                     return
-                narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks)
+                next_player = _get_next_player_name()
+                narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks, next_player)
 
         if not encounter_triggered:
             advance_turn(state)
@@ -442,6 +461,11 @@ def on_submit_action(data):
         if state.in_combat:
             _broadcast(False, "You can't rest in the middle of combat!")
             return
+        rests_used = state.adventure.story_flags.get("_rests_used", 0)
+        if rests_used >= MAX_RESTS_PER_CHAPTER:
+            _broadcast(False, "Your party has already rested too much this chapter — keep moving!")
+            return
+        state.adventure.story_flags["_rests_used"] = rests_used + 1
         actor = state.get_entity(actor_id)
         hp_before = actor.hp
         mp_before = actor.mp
@@ -500,7 +524,9 @@ def on_submit_action(data):
             session_over = False
             winner = None
         elif state.adventure.current_chapter < MAX_CHAPTERS:
+            old_ch = state.adventure.current_chapter
             _advance_chapter(state)
+            result_message = narrate_chapter_transition(old_ch, state.adventure.current_chapter, state)
             session_over = False
             winner = None
         else:
@@ -517,7 +543,8 @@ def on_submit_action(data):
             session_over = True
             winner = None
         else:
-            result_message = narrate_round(action, enemy_attacks, "ongoing", state)
+            next_player = _get_next_player_name()
+            result_message = narrate_round(action, enemy_attacks, "ongoing", state, next_player)
             session_over = False
             winner = None
     else:

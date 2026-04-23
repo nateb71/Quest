@@ -93,7 +93,8 @@ The JSON must have exactly these fields:
 Rules:
 - Use "narrative" when the player is exploring, looking around, moving, talking, or doing ANYTHING that is not a direct attack, spell, or rest
 - Use "attack" ONLY when the player clearly intends to physically strike an enemy that exists in the scene
-- Use "cast_spell" when the player intends to cast a spell — the target can be an enemy (to damage) OR a player ally (to heal)
+- Use "cast_spell" ONLY for combat: dealing damage to an enemy OR healing a party member in battle
+- If a player uses magic for any non-combat purpose (helping villagers, affecting the environment, utility magic, rituals), ALWAYS classify as "narrative" — NEVER "cast_spell"
 - Use "rest" when the player wants to rest, bandage wounds, catch their breath, meditate, or otherwise recover
 - For "narrative" and "rest", set target_id to null and mp_cost to null
 - For "attack", target_id must be one of the enemy IDs in active_entity_ids
@@ -138,8 +139,11 @@ Convert this into a structured action JSON object."""
 
     if action_data["action_type"] == "cast_spell":
         if action_data["target_id"] not in state.scene.active_entity_ids:
-            print(f"AI returned invalid target_id for cast_spell: {action_data['target_id']}")
-            return None
+            # Reclassify as narrative (non-combat magic) instead of failing
+            print(f"cast_spell target_id invalid — reclassifying as narrative: {action_data['target_id']}")
+            action_data["action_type"] = "narrative"
+            action_data["target_id"] = None
+            action_data["mp_cost"] = None
 
     return Action(
         actor_id=action_data["actor_id"],
@@ -200,7 +204,8 @@ Narrate this combat action based on the engine result above."""
     return narration
 
 
-def narrate_round(action: Action, enemy_attacks: list, round_result: str, state: GameState) -> str:
+def narrate_round(action: Action, enemy_attacks: list, round_result: str, state: GameState,
+                  next_player_name: str = None) -> str:
     """Narrate a full combat round: player action + enemy counterattacks."""
     context = _build_context(state)
     actor = state.get_entity(action.actor_id)
@@ -227,7 +232,13 @@ def narrate_round(action: Action, enemy_attacks: list, round_result: str, state:
     else:
         atk_lines = "None — all enemies are dead or could not act."
 
-    system_prompt = """You are a Dungeon Master narrator for a multiplayer D&D game.
+    turn_prompt_rule = (
+        f"- End by naturally addressing {next_player_name} — it is now their turn to act"
+        if next_player_name else
+        "- Do not prompt any specific player at the end"
+    )
+
+    system_prompt = f"""You are a Dungeon Master narrator for a multiplayer D&D game.
 Narrate a full combat round covering the player's action and any enemy counterattacks.
 
 Rules:
@@ -238,7 +249,8 @@ Rules:
 - If a player reaches 0 HP, describe their collapse dramatically
 - If the player healed an ally, describe the restorative magic warmly — do NOT narrate it as an attack
 - Do not invent additional damage, misses, or events not listed below
-- End on the current tension level: triumphant if enemies are dead, grim if players took heavy damage"""
+- End on the current tension level: triumphant if enemies are dead, grim if players took heavy damage
+{turn_prompt_rule}"""
 
     user_message = f"""Game context:
 {json.dumps(context, indent=2)}
@@ -270,6 +282,11 @@ def generate_scene_description(state: GameState) -> str:
         f"{p['character_name']} the {p['role']}" for p in context["players"]
     )
 
+    chapter_arc = "\n".join(
+        f"  Chapter {i}: {state.adventure.story_flags.get(f'chapter_{i}_seed', '(unknown)')}"
+        for i in range(1, 6)
+    )
+
     system_prompt = f"""You are a Dungeon Master for a multiplayer D&D game with {player_count} players.
 Your job is to generate an immersive opening scene description for the whole party.
 
@@ -281,17 +298,22 @@ Rules:
 - Maintain consistency with the adventure title, chapter, and story_flags
 - Include at least one detail for each sense: sight, sound, and smell
 - Reference any villain_motive, world_detail, or recurring_npc from story_flags if present
+- Include a clear but somewhat vague sense of what the party must accomplish this chapter — the threat they face or the place they must reach
+- In the final 1-2 sentences, hint at the ultimate antagonist and the larger stakes of the journey
 - Do not invent mechanical events or stat changes
-- Do not mention specific HP or MP numbers
-- End with a clear hook that invites the party to act"""
+- Do not mention specific HP or MP numbers"""
 
     user_message = f"""Game context:
 {json.dumps(context, indent=2)}
 
+Chapter arc (where the story is heading):
+{chapter_arc}
+Final boss: {state.adventure.boss_name}
+
 Generate an immersive scene description based on the description_seed:
 "{state.scene.description_seed}"
 
-Consider the adventure context and any story_flags when writing the description."""
+The party should come away with a sense of direction and purpose — not just atmosphere."""
 
     description = _call_openai(system_prompt, user_message)
 
@@ -380,7 +402,8 @@ Narrate this recovery moment."""
 
 
 def narrate_encounter_start(action_description: str, actor_id: str, enemy_names: list,
-                            state: GameState, initial_attacks: list = None) -> str:
+                            state: GameState, initial_attacks: list = None,
+                            next_player_name: str = None) -> str:
     context = _build_context(state)
     actor = state.get_entity(actor_id)
     actor_name = actor.character_name if actor else actor_id
@@ -402,7 +425,13 @@ def narrate_encounter_start(action_description: str, actor_id: str, enemy_names:
 
     enemy_count_note = f"{len(enemy_names)} enemy" if len(enemy_names) == 1 else f"{len(enemy_names)} enemies"
 
-    system_prompt = """You are a Dungeon Master for a multiplayer D&D game.
+    turn_prompt_rule = (
+        f"- End by naturally addressing {next_player_name} — it is now their turn to act"
+        if next_player_name and not initial_attacks else
+        "- Do not prompt any specific player at the end"
+    )
+
+    system_prompt = f"""You are a Dungeon Master for a multiplayer D&D game.
 Enemies have appeared and combat is beginning. Describe the encounter start vividly.
 
 Rules:
@@ -412,7 +441,8 @@ Rules:
 - If the party won initiative, convey the tension of the standoff and that it's their move
 - Address the whole party, not just one player
 - 3-5 sentences total
-- Do NOT invent items, loot, or damage values not listed below"""
+- Do NOT invent items, loot, or damage values not listed below
+{turn_prompt_rule}"""
 
     user_message = f"""Game context:
 {json.dumps(context, indent=2)}
@@ -489,6 +519,39 @@ Return a structured JSON adventure outline."""
     return outline
  
  
+def narrate_chapter_transition(old_chapter: int, new_chapter: int, state: GameState) -> str:
+    context = _build_context(state)
+    new_seed = state.adventure.story_flags.get(f"chapter_{new_chapter}_seed", "a new area")
+
+    system_prompt = """You are a Dungeon Master narrator for a multiplayer D&D game.
+The party has just defeated the last enemies of a chapter and is advancing to the next chapter.
+
+Rules:
+- 4-6 sentences total
+- First 1-2 sentences: celebrate the victory and acknowledge the party's effort
+- Next 1-2 sentences: announce that a new chapter begins, describe the transition into the new area using the chapter seed
+- Final 1-2 sentences: hint at the new chapter's threat or objective without spelling it out fully
+- Keep the tone dramatic and immersive — this is a significant story moment
+- Do NOT invent items, loot, or mechanical rewards"""
+
+    user_message = f"""Game context:
+{json.dumps(context, indent=2)}
+
+The party just cleared Chapter {old_chapter}.
+Chapter {new_chapter} now begins. New setting: "{new_seed}"
+Final boss they are still hunting: {state.adventure.boss_name}
+
+Narrate the chapter clear and transition into Chapter {new_chapter}."""
+
+    narration = _call_openai(system_prompt, user_message)
+    if narration is None:
+        return (
+            f"The last enemy falls and silence descends. Chapter {old_chapter} is complete. "
+            f"The party presses on — Chapter {new_chapter} awaits: {new_seed}."
+        )
+    return narration
+
+
 def check_for_encounter(action_description: str, actor_id: str, state: GameState) -> Optional[list]:
     """
     Ask the AI whether a combat encounter should trigger right now.
@@ -512,25 +575,29 @@ If an encounter should trigger, return:
     "enemies": [
         {
             "name": "enemy name",
-            "role": "brute or caster",
+            "role": "minion, brute, or caster",
             "weapon_name": "name of the weapon",
             "weapon_type": "dagger, sword, axe, or staff",
-            "weapon_damage": 5,
+            "weapon_damage": 4,
             "flavor_text": "one sentence appearance description"
         }
     ]
 }
 
+Enemy roles:
+- "minion" — standard weak enemy, always spawns in groups of 2-3. Use for most encounters.
+- "brute" — powerful solo miniboss, always spawns alone (exactly 1). Reserve for dramatic high-stakes moments.
+- "caster" — magical enemy, can appear alone or alongside minions, MUST use weapon_type "staff"
+
 Decision rules:
 - ONLY trigger if combat makes strong narrative sense at this exact moment
 - Think like a DM: does the party's current action logically lead them into danger?
-- Good triggers: party enters an enemy stronghold, investigates a known threat, reaches a location the chapter seed implies has enemies, walks into an obvious trap
-- Bad triggers: party is just exploring safely, doing routine travel, or recently finished a fight
+- Good triggers: party enters enemy territory, investigates a known threat, reaches a guarded location, walks into an ambush
+- Bad triggers: party is exploring peacefully, doing routine travel, or recently finished a fight
 - Do NOT trigger just because several turns have passed — wait for a dramatically appropriate moment
-- Use 1 enemy for most skirmishes, 2-3 for setpieces (ambushes, guarded entrances, boss antechambers)
-- All enemies in one encounter must be thematically consistent with the scene and chapter
-- role must be exactly "brute" or "caster" — casters MUST use weapon_type "staff"
-- weapon_damage must be an integer between 4 and 6
+- DEFAULT encounter = 2-3 minions. A solo brute is a rare, dramatic event — do not default to it.
+- All enemies must be thematically consistent with the scene and chapter
+- weapon_damage must be an integer between 3 and 7
 - Do NOT assign HP, MP, or stats — the engine handles those"""
 
     user_message = f"""Game context:
@@ -568,7 +635,7 @@ Should a combat encounter trigger right now based on the story? If yes, what ene
     for e in enemies[:3]:
         if not all(k in e for k in ["name", "role", "weapon_name", "weapon_type", "weapon_damage"]):
             continue
-        if e["role"] not in ["brute", "caster"]:
+        if e["role"] not in ["minion", "brute", "caster"]:
             continue
         if e["weapon_type"] not in ["dagger", "sword", "axe", "staff"]:
             continue
@@ -582,24 +649,25 @@ def propose_enemy_encounter(state: GameState) -> Optional[dict]:
  
     system_prompt = """You are a Dungeon Master proposing an enemy encounter for a D&D game.
 Your job is to propose a single enemy appropriate for the current scene.
- 
+
 You must ALWAYS respond with ONLY a valid JSON object. No explanation, no extra text.
- 
+
 The JSON must have exactly these fields:
 {
     "name": "enemy name",
-    "role": "brute or caster",
+    "role": "minion, brute, or caster",
     "flavor_text": "1-2 sentence description of the enemy's appearance",
     "weapon_name": "name of the weapon",
     "weapon_type": "dagger, sword, axe, or staff",
-    "weapon_damage": an integer between 4 and 10
+    "weapon_damage": an integer between 3 and 7
 }
- 
+
 Rules:
-- role must be exactly "brute" or "caster"
+- role must be exactly "minion", "brute", or "caster"
+- "minion" is a standard weak enemy; "brute" is a powerful solo miniboss; "caster" is a magical enemy
 - weapon_type must be exactly one of: dagger, sword, axe, staff
-- caster role should always have weapon_type staff
-- weapon_damage must be an integer between 4 and 10
+- caster role must use weapon_type staff
+- weapon_damage must be an integer between 3 and 7
 - The enemy should fit the current scene and adventure theme
 - Do NOT assign HP, MP, or stats — the engine handles those"""
  
@@ -627,7 +695,7 @@ The enemy should fit the theme: "{state.adventure.title}" in chapter {state.adve
             print(f"Enemy proposal missing field: {field}")
             return None
  
-    if proposal["role"] not in ["brute", "caster"]:
+    if proposal["role"] not in ["minion", "brute", "caster"]:
         print(f"Invalid enemy role: {proposal['role']}")
         return None
  
