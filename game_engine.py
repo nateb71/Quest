@@ -1,14 +1,5 @@
-from dataclasses import dataclass
 from game_state import GameState, Entity
 import random
-
-@dataclass
-class Action:
-    actor_id: str
-    action_type: str
-    target_id: str
-    action_name:str
-    mp_cost = None #mp cost for cast_spell
 
 def validate_action(action, state):   
     #check 1

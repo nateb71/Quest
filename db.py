@@ -48,6 +48,7 @@ def init_db(path: str = DEFAULT_DB) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
 
@@ -80,11 +81,11 @@ def init_db(path: str = DEFAULT_DB) -> None:
 
 # --- User Functions ---
 
-def create_user(username: str, password_hash: str, path: str = DEFAULT_DB) -> int:
+def create_user(username: str, password_hash: str, email: str = "", path: str = DEFAULT_DB) -> int:
     with _transaction(path) as conn:
         cursor = conn.execute(
-            "INSERT INTO Users (username, password_hash) VALUES (?, ?)", 
-            (username, password_hash)
+            "INSERT INTO Users (username, password_hash, email) VALUES (?, ?, ?)",
+            (username, password_hash, email)
         )
         return cursor.lastrowid
     

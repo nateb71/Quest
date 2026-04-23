@@ -187,13 +187,14 @@ def generate_scene_description(state: GameState) -> str:
 Your job is to generate an immersive scene description for the players.
  
 Rules:
-- Keep the description to 3-5 sentences
+- Keep the description to 5-8 sentences
 - Base the description on the description_seed provided
 - Maintain consistency with the adventure title, chapter, and story_flags
-- Describe the environment vividly — sights, sounds, atmosphere
+- Include at least one detail for each sense: sight, sound, and smell
+- Reference any villain_motive, world_detail, or recurring_npc from story_flags if present
 - Do not invent mechanical events or stat changes
 - Do not mention specific HP or MP numbers
-- End with a subtle hook that invites player action"""
+- End with a clear hook that invites player action"""
  
     user_message = f"""Game context:
 {json.dumps(context, indent=2)}
@@ -222,16 +223,22 @@ The JSON must have exactly these fields:
 {
     "title": "name of the adventure",
     "boss_name": "name of the final boss enemy",
-    "chapter_1_seed": "short scene description for chapter 1 e.g. dark forest path",
-    "chapter_2_seed": "short scene description for chapter 2",
-    "chapter_3_seed": "short scene description for chapter 3 (boss encounter)",
-    "story_flags": {}
+    "chapter_1_seed": "short scene description for chapter 1 (opening area)",
+    "chapter_2_seed": "short scene description for chapter 2 (escalating danger)",
+    "chapter_3_seed": "short scene description for chapter 3 (mid-point twist)",
+    "chapter_4_seed": "short scene description for chapter 4 (penultimate challenge)",
+    "chapter_5_seed": "short scene description for chapter 5 (final boss encounter)",
+    "story_flags": {
+        "villain_motive": "one sentence on why the boss is doing this",
+        "world_detail": "one unique fact about this world (e.g. two suns, no iron)",
+        "recurring_npc": "name and one-word personality of a side character"
+    }
 }
  
 Rules:
 - Keep chapter seeds to 5-10 words describing the environment
+- Each chapter seed should feel like a natural escalation from the last
 - The boss should fit the theme provided
-- story_flags should always start as an empty dict {}
 - Make the adventure feel cohesive and thematic"""
  
     user_message = f"""Generate a D&D adventure outline with these parameters:
@@ -254,7 +261,7 @@ Return a structured JSON adventure outline."""
         return None
  
     required_fields = ["title", "boss_name", "chapter_1_seed", "chapter_2_seed",
-                       "chapter_3_seed", "story_flags"]
+                       "chapter_3_seed", "chapter_4_seed", "chapter_5_seed", "story_flags"]
     for field in required_fields:
         if field not in outline:
             print(f"Adventure outline missing field: {field}")
