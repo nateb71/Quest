@@ -373,6 +373,14 @@ button:disabled {
   gap: 12px;
 }
 
+.adventure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
 .class-card {
   background: var(--bg-raised);
   padding: 14px 10px;

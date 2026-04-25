@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingFlow      = null;   // "host" or "join"
     let pendingInviteCode = null;
     let selectedRole     = null;
+    let selectedTheme    = null;
 
     // ── Socket.IO connection ─────────────────────────────────────────────────
     // Connect once on page load; the server keeps the connection alive.
@@ -131,6 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingFlow = 'host';
         pendingInviteCode = null;
         selectedRole = null;
+        selectedTheme = null;
         charNameInput.value = '';
         updateBeginBtn();
         showScreen('characters');
@@ -176,29 +178,49 @@ document.addEventListener('DOMContentLoaded', () => {
         beginBtn.disabled = !(selectedRole && charNameInput.value.trim());
     }
 
+    // ── Adventure selection (host only) ─────────────────────────────────────
+    document.getElementById('adventureSelection').addEventListener('click', e => {
+        const card = e.target.closest('.class-card');
+        if (!card) return;
+        document.querySelectorAll('#adventureSelection .class-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedTheme = card.dataset.theme;
+        document.getElementById('launchAdventureBtn').disabled = false;
+    });
+
+    document.getElementById('launchAdventureBtn').addEventListener('click', async () => {
+        if (!selectedTheme) return;
+        const charName = charNameInput.value.trim();
+        if (!selectedRole || !charName) return;
+
+        const data = await apiRequest('/session/create', 'POST', {
+            character_name: charName,
+            role: selectedRole,
+            theme: selectedTheme,
+        });
+        if (!data) return;
+
+        currentSessionId = data.session_id;
+        myActorId = 'player_1';
+        _saveGameSession(currentSessionId, myActorId);
+        document.getElementById('hostCode').innerText = data.invite_code;
+        document.getElementById('hostPlayerCount').innerText = 'Waiting for Players: 1/2';
+
+        socket.emit("join_session_room", { session_id: currentSessionId });
+        showScreen('host');
+    });
+
     // ── Begin Adventure button ───────────────────────────────────────────────
     document.getElementById('beginBtn').addEventListener('click', async () => {
         const charName = charNameInput.value.trim();
         if (!selectedRole || !charName) return;
 
         if (pendingFlow === 'host') {
-            // 1. Create the session via HTTP (one-shot — returns invite code)
-            const data = await apiRequest('/session/create', 'POST', {
-                character_name: charName,
-                role: selectedRole,
-            });
-            if (!data) return;
-
-            currentSessionId = data.session_id;
-            myActorId = 'player_1';
-            _saveGameSession(currentSessionId, myActorId);
-            document.getElementById('hostCode').innerText = data.invite_code;
-            document.getElementById('hostPlayerCount').innerText = 'Waiting for Players: 1/2';
-
-            // 2. Join the WS room so we receive the game_start broadcast
-            socket.emit("join_session_room", { session_id: currentSessionId });
-
-            showScreen('host');
+            // Host goes to adventure selection next
+            selectedTheme = null;
+            document.querySelectorAll('#adventureSelection .class-card').forEach(c => c.classList.remove('selected'));
+            document.getElementById('launchAdventureBtn').disabled = true;
+            showScreen('adventure-select');
 
         } else if (pendingFlow === 'join') {
             // 1. Join via HTTP (triggers game_start broadcast to host)

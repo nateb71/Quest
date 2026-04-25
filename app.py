@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify, render_template, session as flask_session
-import random
 import socket
 from flask_socketio import SocketIO, emit, join_room, leave_room
 app = Flask(__name__)
@@ -34,6 +33,9 @@ app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 socketio = SocketIO(app, cors_allowed_origins=_origins)
 
 db.init_db()   # create tables on startup if they don't exist
+
+# Bridges the host's theme choice (set at /session/create) to /session/join
+_session_themes: dict = {}
 
 # Adventure configuration
 MAX_CHAPTERS = 5          # how many chapters before the game ends
@@ -249,7 +251,9 @@ def create_session():
         return _err("character_name is required")
     if role not in _ROLE_TEMPLATES:
         return _err("role must be 'warrior', 'rogue', or 'mage'")
+    theme = data.get("theme", "dungeon").strip().lower()
     session_id, invite_code = db.create_session()
+    _session_themes[session_id] = theme
     db.add_session_player(session_id, user_id, char_name, role)
     return jsonify({"session_id": session_id, "invite_code": invite_code}), 201
 
@@ -284,12 +288,7 @@ def join_session():
     players = db.get_session_players(session_id)
     initial_state = _build_initial_state(players)
 
-    # Pick a random theme for variety; difficulty is fixed for balanced play
-    themes = [
-        "dungeon", "haunted forest", "ancient ruins", "pirate ship",
-        "volcanic mountain", "cursed swamp", "sky fortress", "undead catacombs"
-    ]
-    theme = random.choice(themes)
+    theme = _session_themes.pop(session_id, "dungeon")
     difficulty = "normal"
 
     # Generate a unique adventure outline from the AI

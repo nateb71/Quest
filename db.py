@@ -58,6 +58,7 @@ def init_db(path: str = DEFAULT_DB) -> None:
                 invite_code TEXT NOT NULL UNIQUE,
                 status TEXT NOT NULL DEFAULT 'waiting',
                 winner TEXT,
+                theme TEXT NOT NULL DEFAULT 'dungeon',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )""")
 
