@@ -551,3 +551,35 @@ button:disabled {
     padding: 24px 20px;
   }
 }
+
+/* ── Save / Resume cards (dashboard) ─────────────────────────────────────── */
+.save-card {
+  background: var(--bg-raised);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.save-card:hover { background: var(--stone-mid); border-color: var(--border-mid); }
+.save-card-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.save-title { font-size: 14px; font-weight: 600; color: var(--parchment); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.save-meta { font-size: 12px; color: var(--mist); }
+.save-card-actions { flex-shrink: 0; }
+.save-resume-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  background: var(--gold-dark);
+  color: #0f1117;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: opacity 0.15s;
+}
+.save-resume-btn:hover { opacity: 0.85; }

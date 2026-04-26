@@ -236,6 +236,105 @@ def me():
         return _err("User not found", 401)
     return jsonify({"user_id": user["id"], "username": user["username"]})
 
+# ── Saved adventures ──────────────────────────────────────────────────────────
+
+@app.route("/session/my-sessions", methods=["GET"])
+def my_sessions():
+    user_id, err = _require_auth()
+    if err:
+        return err
+
+    import json
+    rows = db.get_user_sessions(user_id)
+    sessions = []
+    for row in rows:
+        adventure_title = None
+        current_chapter = None
+        if row["state_json"]:
+            try:
+                raw = json.loads(row["state_json"])
+                adv = raw.get("adventure", {})
+                adventure_title = adv.get("title")
+                current_chapter = adv.get("current_chapter")
+            except Exception:
+                pass
+
+        sessions.append({
+            "session_id":      row["session_id"],
+            "status":          row["status"],
+            "theme":           row["theme"],
+            "character_name":  row["character_name"],
+            "role":            row["role"],
+            "last_saved":      row["last_saved"],
+            "created_at":      row["created_at"],
+            "invite_code":     row["invite_code"],
+            "adventure_title": adventure_title,
+            "current_chapter": current_chapter,
+            "has_save":        row["state_json"] is not None,
+        })
+    return jsonify({"sessions": sessions})
+
+
+@app.route("/session/resume", methods=["POST"])
+def resume_session():
+    user_id, err = _require_auth()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    if not session_id:
+        return _err("session_id is required")
+
+    sess = db.get_session(session_id)
+    if not sess:
+        return _err("Session not found", 404)
+    if sess["status"] != "active":
+        return _err(f"This adventure cannot be resumed (status: {sess['status']})", 400)
+    if not db.is_player_in_session(session_id, user_id):
+        return _err("You are not a member of this session", 403)
+
+    state = db.load_game_state(session_id)
+    if not state:
+        return _err("No saved game state found for this session", 404)
+
+    # Actor IDs are player_1, player_2 based on join order
+    players = db.get_session_players(session_id)
+    actor_id = None
+    for i, p in enumerate(players, start=1):
+        if p["user_id"] == user_id:
+            actor_id = f"player_{i}"
+            break
+
+    if actor_id is None or actor_id not in state.entities:
+        return _err("Could not locate your character in the saved state", 500)
+
+    return jsonify({
+        "session_id": session_id,
+        "actor_id":   actor_id,
+    })
+
+
+@app.route("/session/<int:session_id>/state", methods=["GET"])
+def get_session_state(session_id):
+    user_id, err = _require_auth()
+    if err:
+        return err
+
+    if not db.is_player_in_session(session_id, user_id):
+        return _err("You are not a member of this session", 403)
+
+    state = db.load_game_state(session_id)
+    if not state:
+        return _err("No saved state found", 404)
+
+    return jsonify({"game_state": state.to_dict()})
+
+
+
+
+
+
 
 # ── Session creation/joining (HTTP — one-shot setup) ──────────────────────────
 

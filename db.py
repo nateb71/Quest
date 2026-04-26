@@ -171,3 +171,27 @@ def save_state_and_end_session(session_id: int, state: GameState, winner, status
             "UPDATE GameSessions SET status = ?, winner = ? WHERE id = ?", 
             (status, winner, session_id)
         )
+        
+   # --- Saved Adventures (resume) Functions ---
+
+    def get_user_sessions(user_id: int, path: str = DEFAULT_DB) -> list:
+        """Return all sessions the user participated in that have a saved game state,
+        ordered by most recently updated."""
+        return _query(path, """
+        SELECT
+            gs.id            AS session_id,
+            gs.status,
+            gs.theme,
+            gs.created_at,
+            gs.invite_code,
+            sp.character_name,
+            sp.role,
+            gst.updated_at   AS last_saved,
+            gst.state_json
+        FROM SessionPlayers sp
+        JOIN GameSessions gs  ON gs.id = sp.session_id
+        LEFT JOIN GameState gst ON gst.session_id = gs.id
+        WHERE sp.user_id = ?
+        ORDER BY COALESCE(gst.updated_at, gs.created_at) DESC
+        LIMIT 20
+    """, (user_id,))
