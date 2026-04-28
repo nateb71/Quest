@@ -160,7 +160,7 @@ class Action:
  
 class GameState:
     def __init__(self, adventure, scene, entities, in_combat=False,
-                 initiative_order=None, current_turn_index=0, round_number=0):
+                 initiative_order=None, current_turn_index=0, round_number=0, messages=None):
         self.adventure = adventure
         self.scene = scene
         self.entities = entities
@@ -168,6 +168,7 @@ class GameState:
         self.initiative_order = initiative_order if initiative_order is not None else []
         self.current_turn_index = current_turn_index
         self.round_number = round_number
+        self.messages = messages if messages is not None else []
  
     def get_entity(self, entity_id):
         return self.entities.get(entity_id)
@@ -188,6 +189,7 @@ class GameState:
             "initiative_order": self.initiative_order,
             "current_turn_index": self.current_turn_index,
             "round_number": self.round_number,
+            "messages": self.messages[-40:],
         }
  
     def to_json(self):
@@ -207,6 +209,7 @@ class GameState:
             initiative_order=data["initiative_order"],
             current_turn_index=data["current_turn_index"],
             round_number=data["round_number"],
+            messages=data.get("messages", []),
         )
  
     @staticmethod

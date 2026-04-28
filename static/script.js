@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
             history.pushState({ screen: id }, '', `#${id}`);
         }
         if (id === 'game') _onEnterGameScreen();
+        if (id === 'dashboard') loadSavedSessions();
     }
 
     window.addEventListener('popstate', async () => {
@@ -61,72 +62,76 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ── Saved adventures dashboard ────────────────────────────────────────────
-async function loadSavedSessions() {
-    const historyList = document.getElementById('historyList');
-    historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">Loading...</p>';
+    async function loadSavedSessions() {
+        const historyList = document.getElementById('historyList');
+        historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">Loading...</p>';
 
-    const data = await apiRequest('/session/my-sessions');
-    if (!data || !data.sessions || data.sessions.length === 0) {
-        historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">No recent games found.</p>';
-        return;
-    }
-
-    historyList.innerHTML = '';
-    data.sessions.forEach(sess => {
-        const card = document.createElement('div');
-        card.className = 'save-card';
-
-        const statusLabel = { active: '🟢 Active', complete: '🏆 Complete', failed: '💀 Failed', waiting: '⏳ Waiting' };
-        const label = statusLabel[sess.status] || sess.status;
-        const theme = sess.theme ? sess.theme.charAt(0).toUpperCase() + sess.theme.slice(1) : 'Unknown';
-        const charInfo = sess.character_name ? `${sess.character_name} (${sess.role})` : '—';
-        const chapterInfo = sess.current_chapter ? `Chapter ${sess.current_chapter} / 5` : '';
-        const title = sess.adventure_title || theme;
-        const lastSaved = sess.last_saved
-            ? new Date(sess.last_saved + 'Z').toLocaleString()
-            : new Date(sess.created_at + 'Z').toLocaleString();
-
-        card.innerHTML = `
-            <div class="save-card-info">
-                <span class="save-title">${title}</span>
-                <span class="save-meta">${charInfo}${chapterInfo ? ' &bull; ' + chapterInfo : ''}</span>
-                <span class="save-meta" style="opacity:0.4;">${label} &bull; ${lastSaved}</span>
-            </div>
-            <div class="save-card-actions"></div>
-        `;
-
-        if (sess.status === 'active' && sess.has_save) {
-            const resumeBtn = document.createElement('button');
-            resumeBtn.textContent = 'Resume';
-            resumeBtn.className = 'save-resume-btn';
-            resumeBtn.addEventListener('click', () => resumeSession(sess.session_id));
-            card.querySelector('.save-card-actions').appendChild(resumeBtn);
+        const data = await apiRequest('/session/my-sessions');
+        if (!data || !data.sessions || data.sessions.length === 0) {
+            historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">No recent games found.</p>';
+            return;
         }
 
-        historyList.appendChild(card);
-    });
-}
+        historyList.innerHTML = '';
+        data.sessions.forEach(sess => {
+            const card = document.createElement('div');
+            card.className = 'save-card';
 
-async function resumeSession(sessionId) {
-    const data = await apiRequest('/session/resume', 'POST', { session_id: sessionId });
-    if (!data) return;
+            const statusLabel = { active: '🟢 Active', complete: '🏆 Complete', failed: '💀 Failed', waiting: '⏳ Waiting' };
+            const label = statusLabel[sess.status] || sess.status;
+            const theme = sess.theme ? sess.theme.charAt(0).toUpperCase() + sess.theme.slice(1) : 'Unknown';
+            const charInfo = sess.character_name ? `${sess.character_name} (${sess.role})` : '—';
+            const chapterInfo = sess.current_chapter ? `Chapter ${sess.current_chapter} / 5` : '';
+            const title = sess.adventure_title || theme;
+            const lastSaved = sess.last_saved
+                ? new Date(sess.last_saved + 'Z').toLocaleString()
+                : new Date(sess.created_at + 'Z').toLocaleString();
 
-    currentSessionId = data.session_id;
-    myActorId = data.actor_id;
-    _saveGameSession(currentSessionId, myActorId);
+            card.innerHTML = `
+                <div class="save-card-info">
+                    <span class="save-title">${title}</span>
+                    <span class="save-meta">${charInfo}${chapterInfo ? ' &bull; ' + chapterInfo : ''}</span>
+                    <span class="save-meta" style="opacity:0.4;">${label} &bull; ${lastSaved}</span>
+                </div>
+                <div class="save-card-actions"></div>
+            `;
 
-    socket.emit('join_session_room', { session_id: currentSessionId });
+            if (sess.status === 'active' && sess.has_save) {
+                const resumeBtn = document.createElement('button');
+                resumeBtn.textContent = 'Resume';
+                resumeBtn.className = 'save-resume-btn';
+                resumeBtn.addEventListener('click', () => resumeSession(sess.session_id));
+                card.querySelector('.save-card-actions').appendChild(resumeBtn);
+            }
 
-    const stateData = await apiRequest(`/session/${sessionId}/state`);
-    showScreen('game');
-    if (stateData && stateData.game_state) {
-        renderGameState(stateData.game_state);
-        addMessage('Dungeon Master', 'Welcome back, adventurer. Your quest continues...');
-    } else {
-        addMessage('System', 'Session rejoined. Waiting for the next action...');
+            historyList.appendChild(card);
+        });
     }
-}
 
+    async function resumeSession(sessionId) {
+        const data = await apiRequest('/session/resume', 'POST', { session_id: sessionId });
+        if (!data) return;
+
+        currentSessionId = data.session_id;
+        myActorId = data.actor_id;
+        _saveGameSession(currentSessionId, myActorId);
+
+        socket.emit('join_session_room', { session_id: currentSessionId });
+
+        const stateData = await apiRequest(`/session/${sessionId}/state`);
+        showScreen('game');
+        if (stateData && stateData.game_state) {
+            renderGameState(stateData.game_state);
+            storyBox.innerHTML = '';
+            const messages = stateData.game_state.messages || [];
+            messages.forEach(msg => addMessage(msg.sender, msg.text));
+            if (messages.length === 0) {
+                addMessage('Dungeon Master', 'Welcome back, adventurer. Your quest continues...');
+            }
+        } else {
+            addMessage('System', 'Session rejoined. Waiting for the next action...');
+        }
+    }
 
     function _onEnterGameScreen() {
         // Nothing to fetch — state arrives via WebSocket events.
@@ -333,10 +338,8 @@ async function resumeSession(sessionId) {
 
     // ── Game screen ──────────────────────────────────────────────────────────
     document.getElementById('exitGameBtn').addEventListener('click', () => {
-        if (currentSessionId) {
-            socket.emit("end_session", { session_id: currentSessionId });
-            currentSessionId = null;
-        }
+        currentSessionId = null;
+        myActorId = null;
         showScreen('dashboard');
     });
 
@@ -505,5 +508,3 @@ async function resumeSession(sessionId) {
     }
     _initApp();
 });
-
-if (id === 'dashboard') loadSavedSessions();

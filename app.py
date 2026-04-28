@@ -410,6 +410,7 @@ def join_session():
 
     # Generate an immersive opening scene description
     opening_story = generate_scene_description(initial_state)
+    initial_state.messages.append({"sender": "Dungeon Master", "text": opening_story})
     db.save_game_state(session_id, initial_state)
 
     # Notify the host (player_1) via WebSocket that the game is starting
@@ -495,6 +496,12 @@ def on_submit_action(data):
             "winner":           winner,
         }, to=room)
 
+    def _record(dm_text):
+        actor = state.get_entity(actor_id)
+        sender = actor.character_name if actor else "Player"
+        state.messages.append({"sender": sender, "text": action_description})
+        state.messages.append({"sender": "Dungeon Master", "text": dm_text})
+
     # ── Step 1: Interpret the action BEFORE spawning enemies ──────────────────
     # This lets the AI classify narrative vs. combat with the current scene state.
     action = interpret_action(action_description, actor_id, state)
@@ -545,6 +552,7 @@ def on_submit_action(data):
                 skip_enemy_turns(state)
             narration = narrate_narrative_action(action_description, actor_id, state)
 
+        _record(narration)
         db.save_game_state(session_id, state)
         _broadcast(True, narration)
         return
@@ -574,6 +582,7 @@ def on_submit_action(data):
         advance_turn(state)
         narration = narrate_rest(actor_id, hp_restored, mp_restored,
                                  actor.hp, actor.max_hp, actor.mp, actor.max_mp, state)
+        _record(narration)
         db.save_game_state(session_id, state)
         _broadcast(True, narration)
         return
@@ -649,6 +658,7 @@ def on_submit_action(data):
         _broadcast(False, engine_result)
         return
 
+    _record(result_message)
     if session_over:
         db.save_state_and_end_session(session_id, state, winner, "complete" if winner else "failed")
     else:
