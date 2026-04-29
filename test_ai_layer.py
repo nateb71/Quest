@@ -88,17 +88,31 @@ def test_malformed_json_returns_none():
     assert action is None
 
 def test_unrecognised_action_type_returns_none():
-    # the AI returning an unknown action_type is rejected — interpret_action returns None
+    # the AI returning a truly unknown action_type is rejected — interpret_action returns None
+    mock_response = json.dumps({
+        "actor_id": "player_1",
+        "action_type": "teleport",
+        "target_id": "goblin_1",
+        "action_name": "blink",
+        "mp_cost": None,
+    })
+    with patch("ai_layer._call_openai", return_value=mock_response):
+        action = interpret_action("I teleport behind the goblin", "player_1", make_test_state())
+    assert action is None
+
+def test_narrative_action_returns_action():
+    # exploring / looking around should return an Action with action_type="narrative"
     mock_response = json.dumps({
         "actor_id": "player_1",
         "action_type": "narrative",
-        "target_id": "goblin_1",
+        "target_id": None,
         "action_name": "look_around",
         "mp_cost": None,
     })
     with patch("ai_layer._call_openai", return_value=mock_response):
         action = interpret_action("I look around the room", "player_1", make_test_state())
-    assert action is None
+    assert action is not None
+    assert action.action_type == "narrative"
 
 
 def test_adventure_outline_valid_5_chapters():

@@ -73,17 +73,6 @@ def _require_auth():
     return user_id, None
 
 
-def _require_membership(session_id: int, user_id: int):
-    sess = db.get_session(session_id)
-    if not sess:
-        return None, _err("Session not found", 404)
-    if sess["status"] != "active":
-        return None, _err(f"Session not active (status: {sess['status']})", 400)
-    if not db.is_player_in_session(session_id, user_id):
-        return None, _err("You are not a member of this session", 403)
-    return sess, None
-
-
 # Starter stats for each class
 _ROLE_TEMPLATES = {
     "warrior": dict(hp=30, max_hp=30, mp=0,  max_mp=0,

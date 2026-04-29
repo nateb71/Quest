@@ -322,46 +322,6 @@ button:disabled {
   color: var(--parchment);
 }
 
-/* ── Dice ───────────────────────────────────────────────────────────────────── */
-.dice-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.dice {
-  background: var(--bg-raised);
-  padding: 8px 4px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  text-align: center;
-  cursor: pointer;
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 12px;
-  color: var(--gold);
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.dice:hover {
-  background: var(--stone-light);
-  border-color: var(--gold);
-  color: var(--gold-light);
-}
-
-.dice:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.dice:active {
-  transform: scale(0.93);
-}
 
 /* ── Dashboard ──────────────────────────────────────────────────────────────── */
 .dashboard { width: min(640px, 100%); }
@@ -458,43 +418,6 @@ button:disabled {
   margin-bottom: 14px;
 }
 
-.history-item {
-  background: var(--bg-raised);
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  margin-bottom: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  color: var(--parchment);
-  transition: border-color 0.15s, background 0.15s;
-  cursor: default;
-}
-
-.history-item:hover {
-  background: var(--stone-mid);
-  border-color: var(--border-mid);
-}
-
-.history-tag {
-  background: rgba(201,168,76,0.15);
-  border: 1px solid var(--gold-dark);
-  color: var(--gold-light);
-  padding: 2px 10px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-display);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.history-date {
-  font-size: 12px;
-  color: var(--mist);
-}
 
 /* ── Enemy entry (game sidebar) ─────────────────────────────────────────────── */
 .enemy-entry {
@@ -515,17 +438,6 @@ button:disabled {
   letter-spacing: 0.06em;
 }
 
-/* ── Dice roll animation ─────────────────────────────────────────────────────── */
-@keyframes die-throw {
-  0%   { transform: scale(0.5) rotate(-20deg); opacity: 0; }
-  55%  { transform: scale(1.15) rotate(12deg); }
-  100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
-}
-
-.roll-animation {
-  animation: die-throw 0.35s ease-out forwards;
-  color: var(--gold-light);
-}
 
 /* ── ADA: High-contrast mode support ──────────────────────────────────────── */
 @media (forced-colors: active) {
