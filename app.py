@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, session as flask_session
 import socket
+import threading
 from flask_socketio import SocketIO, emit, join_room, leave_room
 app = Flask(__name__)
 from flask_cors import CORS
@@ -25,7 +26,7 @@ import sqlite3
 import db
 from game_state import GameState, AdventureState, SceneState, Entity, Stats, Weapon, Action
 from game_engine import validate_action, initialize_combat, process_action, skip_enemy_turns, advance_turn, process_enemy_turns
-from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_encounter_start, narrate_round, narrate_rest, narrate_chapter_transition, interpret_action, generate_adventure_outline, propose_enemy_encounter, check_for_encounter, generate_scene_description
+from ai_layer import narrate_combat_result, narrate_narrative_action, narrate_combined_narrative, narrate_encounter_start, narrate_boss_encounter, narrate_round, narrate_rest, narrate_chapter_transition, interpret_action, generate_adventure_outline, propose_enemy_encounter, check_for_encounter, generate_scene_description
 
 app.secret_key = "CHANGE_THIS_BEFORE_DEPLOYING"  # signs the session cookie
 
@@ -37,14 +38,17 @@ db.init_db()   # create tables on startup if they don't exist
 # Bridges the host's theme choice (set at /session/create) to /session/join
 _session_themes: dict = {}
 
+# In-memory pending actions for simultaneous out-of-combat submission
+# session_id -> {actor_id: action_description}
+_pending_actions: dict = {}
+_pending_mu = threading.Lock()
+
 # Adventure configuration
 MAX_CHAPTERS = 5          # how many chapters before the game ends
 ENEMIES_PER_CHAPTER = 2   # how many enemies players must defeat per chapter
 NARRATIVE_MIN_BEFORE_ENCOUNTER = 2  # minimum narrative turns before AI can trigger an encounter
 REST_HEAL    = 8   # HP restored on short rest
 REST_MP      = 5   # MP restored on short rest
-VICTORY_HEAL = 5   # HP trickle after enemy kill
-VICTORY_MP   = 3   # MP trickle after enemy kill
 MAX_RESTS_PER_CHAPTER = 2           # rests allowed per chapter
 
 
@@ -114,6 +118,41 @@ def _advance_chapter(state) -> None:
         entity.mp = entity.max_mp
 
 
+def _level_up_players(state) -> None:
+    for entity in state.entities.values():
+        if entity.type != "player" or not entity.is_alive():
+            continue
+        entity.level += 1
+        entity.max_hp += 5
+        entity.weapon.damage += 1
+        if entity.role == "warrior":
+            entity.stats.str += 2
+            entity.stats.dex += 1
+        elif entity.role == "rogue":
+            entity.stats.dex += 2
+            entity.stats.str += 1
+        elif entity.role == "mage":
+            entity.stats.int += 2
+            entity.max_mp += 5
+
+
+def _build_boss_entity(state) -> Entity:
+    boss_name = state.adventure.boss_name
+    entity_id = boss_name.lower().replace(" ", "_") + "_boss"
+    return Entity(
+        id=entity_id,
+        type="enemy",
+        role="boss",
+        level=5,
+        hp=80, max_hp=80,
+        mp=20, max_mp=20,
+        stats=Stats(str=18, dex=12, int=12),
+        weapon=Weapon(name="Ruinous Blade", weapon_type="sword", damage=9),
+        items=[],
+        character_name=boss_name,
+    )
+
+
 def _build_enemy_entity(proposal: dict) -> Entity:
     role = proposal["role"]
     if role == "minion":
@@ -145,6 +184,7 @@ def _build_enemy_entity(proposal: dict) -> Entity:
             "damage":      min(dmg_hi, max(dmg_lo, proposal["weapon_damage"])),
         }),
         items=[],
+        character_name=proposal["name"],
     )
 
 
@@ -273,6 +313,17 @@ def my_sessions():
             "has_save":        row["state_json"] is not None,
         })
     return jsonify({"sessions": sessions})
+
+
+@app.route("/session/<int:session_id>/delete", methods=["POST"])
+def delete_session(session_id):
+    user_id, err = _require_auth()
+    if err:
+        return err
+    if not db.is_player_in_session(session_id, user_id):
+        return _err("Not your session", 403)
+    db.mark_session_deleted(session_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/session/resume", methods=["POST"])
@@ -502,6 +553,20 @@ def on_submit_action(data):
         state.messages.append({"sender": sender, "text": action_description})
         state.messages.append({"sender": "Dungeon Master", "text": dm_text})
 
+    def _broadcast_combined(combined, message, session_over=False, winner=None):
+        inputs = []
+        for pid, pdesc in combined.items():
+            e = state.get_entity(pid)
+            inputs.append({"actor_id": pid, "actor_name": e.character_name if e else pid, "actor_input": pdesc})
+        socketio.emit("action_result", {
+            "valid":           True,
+            "combined_inputs": inputs,
+            "message":         message,
+            "game_state":      state.to_dict(),
+            "session_over":    session_over,
+            "winner":          winner,
+        }, to=room)
+
     # ── Step 1: Interpret the action BEFORE spawning enemies ──────────────────
     # This lets the AI classify narrative vs. combat with the current scene state.
     action = interpret_action(action_description, actor_id, state)
@@ -512,7 +577,75 @@ def on_submit_action(data):
 
     # ── Step 2: Narrative actions ─────────────────────────────────────────────
     if action.action_type == "narrative":
-        # Enforce turns in and out of combat using initiative_order
+
+        # ── Out-of-combat: simultaneous submission — wait for all players ─────
+        if not state.in_combat:
+            # Lock only for the dict read/write — released before any AI or DB work
+            with _pending_mu:
+                _pending_actions.setdefault(session_id, {})[actor_id] = action_description
+                living_players = [eid for eid, e in state.entities.items()
+                                  if e.type == "player" and e.is_alive()]
+                all_ready = len(_pending_actions[session_id]) >= len(living_players)
+                combined_actions = _pending_actions.pop(session_id) if all_ready else None
+
+            if combined_actions is None:
+                # Still waiting for partner — notify the room
+                actor = state.get_entity(actor_id)
+                socketio.emit("action_pending", {
+                    "actor_id":    actor_id,
+                    "actor_name":  actor.character_name if actor else actor_id,
+                    "actor_input": action_description,
+                }, to=room)
+                return
+
+            # All players have submitted — process together
+
+            count = state.adventure.story_flags.get("_narrative_count", 0) + 1
+            state.adventure.story_flags["_narrative_count"] = count
+
+            encounter_triggered = False
+            if count >= NARRATIVE_MIN_BEFORE_ENCOUNTER:
+                combined_desc = " | ".join(combined_actions.values())
+                encounter_proposals = check_for_encounter(combined_desc, actor_id, state)
+                if encounter_proposals:
+                    encounter_triggered = True
+                    state.adventure.story_flags["_narrative_count"] = 0
+                    enemy_names = []
+                    for i, proposal in enumerate(encounter_proposals, start=1):
+                        proposal["_index"] = i
+                        enemy = _build_enemy_entity(proposal)
+                        state.entities[enemy.id] = enemy
+                        state.scene.active_entity_ids.append(enemy.id)
+                        enemy_names.append(proposal["name"])
+                    initialize_combat(state)
+                    initial_attacks, initial_result = process_enemy_turns(state)
+                    combined_desc = " | ".join(combined_actions.values())
+                    narration = narrate_encounter_start(combined_desc, actor_id, enemy_names, state, initial_attacks,
+                                                        None if initial_result == "players_lose" else _get_next_player_name())
+                    for pid, pdesc in combined_actions.items():
+                        e = state.get_entity(pid)
+                        state.messages.append({"sender": e.character_name if e else pid, "text": pdesc})
+                    state.messages.append({"sender": "Dungeon Master", "text": narration})
+                    if initial_result == "players_lose":
+                        db.save_state_and_end_session(session_id, state, None, "failed")
+                        _broadcast_combined(combined_actions, narration, True, None)
+                    else:
+                        db.save_game_state(session_id, state)
+                        _broadcast_combined(combined_actions, narration)
+                    return
+
+            if not encounter_triggered:
+                narration = narrate_combined_narrative(combined_actions, state)
+
+            for pid, pdesc in combined_actions.items():
+                e = state.get_entity(pid)
+                state.messages.append({"sender": e.character_name if e else pid, "text": pdesc})
+            state.messages.append({"sender": "Dungeon Master", "text": narration})
+            db.save_game_state(session_id, state)
+            _broadcast_combined(combined_actions, narration)
+            return
+
+        # ── In-combat narrative: enforce turn order ───────────────────────────
         if state.initiative_order:
             idx = state.current_turn_index % len(state.initiative_order)
             if state.initiative_order[idx] != actor_id:
@@ -522,36 +655,9 @@ def on_submit_action(data):
         count = state.adventure.story_flags.get("_narrative_count", 0) + 1
         state.adventure.story_flags["_narrative_count"] = count
 
-        encounter_triggered = False
-        if not state.in_combat and count >= NARRATIVE_MIN_BEFORE_ENCOUNTER:
-            # Ask the AI whether this story moment calls for combat
-            encounter_proposals = check_for_encounter(action_description, actor_id, state)
-            if encounter_proposals:
-                encounter_triggered = True
-                state.adventure.story_flags["_narrative_count"] = 0
-                enemy_names = []
-                for i, proposal in enumerate(encounter_proposals, start=1):
-                    proposal["_index"] = i
-                    enemy = _build_enemy_entity(proposal)
-                    state.entities[enemy.id] = enemy
-                    state.scene.active_entity_ids.append(enemy.id)
-                    enemy_names.append(proposal["name"])
-                initialize_combat(state)
-                initial_attacks, initial_result = process_enemy_turns(state)
-                if initial_result == "players_lose":
-                    db.save_state_and_end_session(session_id, state, None, "failed")
-                    narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks)
-                    _broadcast(True, narration, True, None)
-                    return
-                next_player = _get_next_player_name()
-                narration = narrate_encounter_start(action_description, actor_id, enemy_names, state, initial_attacks, next_player)
-
-        if not encounter_triggered:
-            advance_turn(state)
-            if state.in_combat:
-                skip_enemy_turns(state)
-            narration = narrate_narrative_action(action_description, actor_id, state)
-
+        advance_turn(state)
+        skip_enemy_turns(state)
+        narration = narrate_narrative_action(action_description, actor_id, state)
         _record(narration)
         db.save_game_state(session_id, state)
         _broadcast(True, narration)
@@ -612,33 +718,51 @@ def on_submit_action(data):
 
     if engine_result == "players_win":
         result_message = narrate_combat_result(action, engine_result, state)
-        state.adventure.enemies_defeated_this_chapter += 1
 
-        if state.adventure.enemies_defeated_this_chapter < ENEMIES_PER_CHAPTER:
-            state.in_combat = False
-            state.adventure.story_flags["_narrative_count"] = 0
-            state.scene.active_entity_ids = [
-                eid for eid in state.scene.active_entity_ids
-                if state.entities[eid].type == "player"
-            ]
-            state.initiative_order = list(state.scene.active_entity_ids)
-            state.current_turn_index = 0
-            for eid in state.scene.active_entity_ids:
-                entity = state.entities[eid]
-                if entity.type == "player" and entity.is_alive():
-                    entity.hp = min(entity.hp + VICTORY_HEAL, entity.max_hp)
-                    entity.mp = min(entity.mp + VICTORY_MP,   entity.max_mp)
-            session_over = False
-            winner = None
-        elif state.adventure.current_chapter < MAX_CHAPTERS:
-            old_ch = state.adventure.current_chapter
-            _advance_chapter(state)
-            result_message = narrate_chapter_transition(old_ch, state.adventure.current_chapter, state)
-            session_over = False
-            winner = None
-        else:
+        if state.adventure.story_flags.get("_boss_active"):
+            # Boss just died — game over
+            state.adventure.boss_defeated = True
+            state.adventure.story_flags["_boss_active"] = False
             session_over = True
             winner = "players"
+        else:
+            state.adventure.enemies_defeated_this_chapter += 1
+
+            if state.adventure.enemies_defeated_this_chapter < ENEMIES_PER_CHAPTER:
+                state.in_combat = False
+                state.adventure.story_flags["_narrative_count"] = 0
+                state.scene.active_entity_ids = [
+                    eid for eid in state.scene.active_entity_ids
+                    if state.entities[eid].type == "player"
+                ]
+                state.initiative_order = list(state.scene.active_entity_ids)
+                state.current_turn_index = 0
+                session_over = False
+                winner = None
+            elif state.adventure.current_chapter < MAX_CHAPTERS:
+                _level_up_players(state)
+                old_ch = state.adventure.current_chapter
+                _advance_chapter(state)
+                result_message = narrate_chapter_transition(old_ch, state.adventure.current_chapter, state)
+                session_over = False
+                winner = None
+            else:
+                # Chapter 5 enemies cleared — spawn the final boss
+                boss = _build_boss_entity(state)
+                state.entities[boss.id] = boss
+                state.scene.active_entity_ids.append(boss.id)
+                state.adventure.story_flags["_boss_active"] = True
+                initialize_combat(state)
+                initial_attacks, initial_result = process_enemy_turns(state)
+                if initial_result == "players_lose":
+                    result_message = narrate_boss_encounter(action_description, actor_id, state, initial_attacks)
+                    session_over = True
+                    winner = None
+                else:
+                    next_player = _get_next_player_name()
+                    result_message = narrate_boss_encounter(action_description, actor_id, state, initial_attacks, next_player)
+                    session_over = False
+                    winner = None
     elif engine_result == "players_lose":
         result_message = narrate_combat_result(action, engine_result, state)
         session_over = True

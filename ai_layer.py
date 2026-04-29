@@ -298,7 +298,7 @@ Rules:
 - Maintain consistency with the adventure title, chapter, and story_flags
 - Include at least one detail for each sense: sight, sound, and smell
 - Reference any villain_motive, world_detail, or recurring_npc from story_flags if present
-- Include a clear but somewhat vague sense of what the party must accomplish this chapter — the threat they face or the place they must reach
+- Include a clear sense of what the party must accomplish this chapter — the threat they face or the place they must reach
 - In the final 1-2 sentences, hint at the ultimate antagonist and the larger stakes of the journey
 - Do not invent mechanical events or stat changes
 - Do not mention specific HP or MP numbers"""
@@ -362,6 +362,58 @@ Narrate what happens as a direct result of this action. Subtly steer the party t
     narration = _call_openai(system_prompt, user_message)
     if narration is None:
         return f"{actor_name} {action_description.lower()}. The scene holds its breath."
+    return narration
+
+
+def narrate_combined_narrative(actions: dict, state: GameState) -> str:
+    """actions: {actor_id: action_description} — all players submitted simultaneously."""
+    context = _build_context(state)
+    chapter_seed = state.adventure.story_flags.get(
+        f"chapter_{state.adventure.current_chapter}_seed", state.scene.description_seed
+    )
+
+    action_lines = []
+    for actor_id, action_desc in actions.items():
+        actor = state.get_entity(actor_id)
+        name = actor.character_name if actor else actor_id
+        role = actor.role if actor else "adventurer"
+        action_lines.append(f"- {name} (the {role}): \"{action_desc}\"")
+    actions_text = "\n".join(action_lines)
+
+    system_prompt = """You are a Dungeon Master narrator for a multiplayer D&D game.
+All players have simultaneously submitted their exploratory actions for this moment.
+
+Rules:
+- Narrate the outcome of ALL submitted actions together in one cohesive response
+- Give each player's action its own moment — don't ignore or merge anyone's contribution
+- Describe what the characters perceive: sights, sounds, smells, atmosphere
+- Maintain the adventure's tone and setting
+- Do NOT give or describe any items, weapons, keys, loot, or objects the players can pick up
+- Do NOT grant any mechanical advantages, power-ups, or stat changes
+- Do NOT invent enemies, ambushes, or combat — that is handled separately
+- Do NOT contradict the current scene context
+- Do NOT ask the players if they want to do something — they already decided, just narrate what happens
+- Do NOT end with a question like "will you dare venture further?"
+- Keep it to 3-5 sentences"""
+
+    user_message = f"""Game context:
+{json.dumps(context, indent=2)}
+
+Current chapter objective: "{chapter_seed}"
+Final boss the party is hunting: {state.adventure.boss_name}
+
+The players submitted these actions simultaneously:
+{actions_text}
+
+Narrate what happens as a result of both actions. Subtly steer the party toward the chapter objective."""
+
+    narration = _call_openai(system_prompt, user_message)
+    if narration is None:
+        names = []
+        for aid in actions:
+            e = state.get_entity(aid)
+            names.append(e.character_name if e else aid)
+        return f"{' and '.join(names)} each make their move. The moment passes, the scene shifts around them."
     return narration
 
 
@@ -462,6 +514,64 @@ Narrate this encounter start."""
     return narration
  
  
+def narrate_boss_encounter(action_description: str, actor_id: str, state: GameState,
+                           initial_attacks: list = None, next_player_name: str = None) -> str:
+    context = _build_context(state)
+    actor = state.get_entity(actor_id)
+    actor_name = actor.character_name if actor else actor_id
+    boss_name = state.adventure.boss_name
+    villain_motive = state.adventure.story_flags.get("villain_motive", "")
+
+    if initial_attacks:
+        atk_lines = "\n".join(
+            f"- {a['enemy_name']} struck {a['target_name']} for {a['damage']} damage "
+            f"({a['target_hp_remaining']} HP remaining)"
+            for a in initial_attacks
+        )
+        initiative_note = f"The boss won initiative and attacked first:\n{atk_lines}"
+    else:
+        initiative_note = "The party won initiative — they act first."
+
+    turn_prompt_rule = (
+        f"- End by naturally addressing {next_player_name} — it is their turn to strike first"
+        if next_player_name and not initial_attacks else
+        "- Do not prompt any specific player at the end"
+    )
+
+    motive_note = f"The villain's motive: {villain_motive}" if villain_motive else ""
+
+    system_prompt = f"""You are a Dungeon Master for a multiplayer D&D game.
+The party has finally reached the final boss — the villain they have hunted across all five chapters.
+This is the climax of the entire adventure. Make it feel earned and terrifying.
+
+Rules:
+- Open with a dramatic reveal of {boss_name} — describe their presence, power, and menace
+- Reference what the party has endured to reach this moment
+- If the boss attacked first, describe the strike as overwhelming and shocking
+- If the party acts first, convey the weight of this moment — this is what they came for
+- 4-6 sentences total — this narration should feel longer and more epic than normal encounters
+- Do NOT invent items, loot, or damage values not listed below
+{turn_prompt_rule}"""
+
+    user_message = f"""Game context:
+{json.dumps(context, indent=2)}
+
+{actor_name} was: "{action_description}"
+The final boss has appeared: {boss_name}
+{motive_note}
+{initiative_note}
+
+Narrate this climactic confrontation."""
+
+    narration = _call_openai(system_prompt, user_message)
+    if narration is None:
+        if initial_attacks:
+            hits = ", ".join(f"{a['enemy_name']} hits {a['target_name']} for {a['damage']}" for a in initial_attacks)
+            return f"{boss_name} has arrived — and struck before the party could react! {hits}. The final battle begins!"
+        return f"The air grows cold as {boss_name} steps from the shadows. This is it — the final battle!"
+    return narration
+
+
 def generate_adventure_outline(title: str, theme: str, difficulty: str) -> Optional[dict]:
     system_prompt = """You are a Dungeon Master designing a D&D adventure outline.
 Your job is to generate a structured adventure outline as JSON.

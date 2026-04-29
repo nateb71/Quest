@@ -29,7 +29,7 @@
 </div>
 
 <div class="container dashboard screen" id="dashboard">
-    <h1>Quest Dashboard</h1>
+    <h1>Quest</h1>
     <div class="menu-actions">
         <button data-go="newgame">Start New Adventure</button>
         <button class="secondary" id="logoutBtn">Logout</button>
@@ -137,8 +137,12 @@
     </div>
 
     <div>
-        <div class="story-box" id="story">
-            <p><b>Dungeon Master:</b> Your adventure begins...</p>
+        <div class="story-box" id="story"></div>
+        <div id="thinking-indicator" style="display:none;">
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            <span class="thinking-dot"></span>
+            Generating response...
         </div>
         <div class="input-box">
             <input id="actionInput" type="text" placeholder="Waiting for game to start..." disabled>
@@ -150,12 +154,16 @@
         <h3>Stats</h3>
         <div class="stat" id="stat-hp">HP: --</div>
         <div class="stat" id="stat-mp">MP: --</div>
+        <div class="stat" id="stat-level">Level: --</div>
+        <div class="stat" id="stat-str">STR: --</div>
+        <div class="stat" id="stat-dex">DEX: --</div>
+        <div class="stat" id="stat-int">INT: --</div>
         <div id="enemy-list" style="margin-top:15px">
             <h3>Enemies</h3>
             <p id="enemy-placeholder" style="opacity:0.5; font-size:12px;">No enemies yet.</p>
         </div>
         <div id="inventory" style="margin-top:15px">
-            <h3>Inventory</h3>
+            <h3>Weapon</h3>
             <p id="inventory-weapon">--</p>
         </div>
         <button style="margin-top:20px" class="secondary" id="exitGameBtn">Exit</button>

@@ -253,9 +253,9 @@ button:disabled {
 
 /* ── Game layout ────────────────────────────────────────────────────────────── */
 .game-layout {
-  width: 96vw;
-  max-width: 1120px;
-  grid-template-columns: 190px 1fr 190px;
+  width: 98vw;
+  max-width: 1400px;
+  grid-template-columns: 200px 1fr 200px;
   gap: 16px;
   align-items: start;
   margin: 0 auto;
@@ -264,13 +264,13 @@ button:disabled {
 /* ── Story / narrative box ──────────────────────────────────────────────────── */
 .story-box {
   background: var(--bg-inset);
-  padding: 18px 20px;
+  padding: 20px 24px;
   border-radius: var(--radius-lg);
-  height: 420px;
+  height: clamp(420px, 70vh, 780px);
   overflow-y: auto;
   font-family: var(--font-body);
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 17px;
+  line-height: 1.8;
   border: 1px solid var(--border);
   color: var(--scroll);
 
@@ -308,10 +308,10 @@ button:disabled {
 /* ── Sidebar panels ─────────────────────────────────────────────────────────── */
 .sidebar {
   background: var(--bg-surface);
-  padding: 16px;
+  padding: 18px;
   border-radius: var(--radius-lg);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.65;
   border: 1px solid var(--border);
 }
 
@@ -569,7 +569,7 @@ button:disabled {
 .save-card-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .save-title { font-size: 14px; font-weight: 600; color: var(--parchment); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .save-meta { font-size: 12px; color: var(--mist); }
-.save-card-actions { flex-shrink: 0; }
+.save-card-actions { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
 .save-resume-btn {
   padding: 6px 16px;
   font-size: 13px;
@@ -583,3 +583,44 @@ button:disabled {
   transition: opacity 0.15s;
 }
 .save-resume-btn:hover { opacity: 0.85; }
+
+.save-delete-btn {
+  padding: 4px 10px;
+  font-size: 16px;
+  line-height: 1;
+  background: transparent;
+  color: var(--mist);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  min-height: 0;
+  width: auto;
+  margin: 0;
+}
+.save-delete-btn:hover { color: var(--ember-light); border-color: var(--ember); }
+
+/* ── Thinking / generating indicator ─────────────────────────────────────── */
+#thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--mist-light);
+  padding: 6px 0;
+}
+
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0; }
+  40%           { opacity: 1; }
+}
+
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: blink 1.4s infinite both;
+}
+.thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.4s; }

@@ -172,6 +172,11 @@ def save_state_and_end_session(session_id: int, state: GameState, winner, status
             (status, winner, session_id)
         )
 
+def mark_session_deleted(session_id: int, path: str = DEFAULT_DB) -> None:
+    with _transaction(path) as conn:
+        conn.execute("UPDATE GameSessions SET status = 'deleted' WHERE id = ?", (session_id,))
+
+
 # --- Saved Adventures (resume) Functions ---
 
 def get_user_sessions(user_id: int, path: str = DEFAULT_DB) -> list:
@@ -190,6 +195,7 @@ def get_user_sessions(user_id: int, path: str = DEFAULT_DB) -> list:
         JOIN GameSessions gs  ON gs.id = sp.session_id
         LEFT JOIN GameState gst ON gst.session_id = gs.id
         WHERE sp.user_id = ?
+          AND gs.status != 'deleted'
         ORDER BY COALESCE(gst.updated_at, gs.created_at) DESC
         LIMIT 20
     """, (user_id,))

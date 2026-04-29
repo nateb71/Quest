@@ -104,6 +104,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.querySelector('.save-card-actions').appendChild(resumeBtn);
             }
 
+            const delBtn = document.createElement('button');
+            delBtn.textContent = '×';
+            delBtn.className = 'save-delete-btn';
+            delBtn.title = 'Delete adventure';
+            delBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm('Delete this adventure? This cannot be undone.')) return;
+                const ok = await apiRequest(`/session/${sess.session_id}/delete`, 'POST');
+                if (ok) card.remove();
+            });
+            card.querySelector('.save-card-actions').appendChild(delBtn);
+
             historyList.appendChild(card);
         });
     }
@@ -313,6 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 3. Render the initial state we got back from the HTTP response
             showScreen('game');
+            storyBox.innerHTML = '';
             if (data.game_state)        renderGameState(data.game_state);
             if (data.opening_narration) addMessage('Dungeon Master', data.opening_narration);
         }
@@ -323,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("game_start received", data);
         currentSessionId = data.session_id;
         showScreen('game');
+        storyBox.innerHTML = '';
         if (data.game_state)        renderGameState(data.game_state);
         if (data.opening_narration) addMessage('Dungeon Master', data.opening_narration);
     });
@@ -343,10 +357,28 @@ document.addEventListener('DOMContentLoaded', () => {
         showScreen('dashboard');
     });
 
+    // ── WebSocket: action_pending (one player submitted, waiting for partner) ─
+    socket.on("action_pending", (data) => {
+        if (data.actor_id !== myActorId) {
+            addMessage(data.actor_name, data.actor_input);
+            actionInput.placeholder = 'Partner is ready — submit your action...';
+        } else {
+            actionInput.placeholder = 'Waiting for partner...';
+        }
+    });
+
     // ── WebSocket: action_result (broadcast to both players after any action) ─
     socket.on("action_result", (result) => {
-        // Show the other player's typed action so everyone sees what was said
-        if (result.actor_id && result.actor_id !== myActorId && result.actor_input) {
+        document.getElementById('thinking-indicator').style.display = 'none';
+        if (result.combined_inputs) {
+            // Simultaneous round — show each partner's action (skip our own)
+            result.combined_inputs.forEach(inp => {
+                if (inp.actor_id !== myActorId) {
+                    addMessage(inp.actor_name, inp.actor_input);
+                }
+            });
+        } else if (result.actor_id && result.actor_id !== myActorId && result.actor_input) {
+            // Single combat action — show the other player's move
             const gs = result.game_state;
             const actor = gs && gs.entities && gs.entities[result.actor_id];
             const label = (actor && actor.character_name) || result.actor_id;
@@ -399,8 +431,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const me = gs.entities && gs.entities[myActorId];
         if (me) {
-            document.getElementById('stat-hp').innerText = `HP: ${me.hp}/${me.max_hp}`;
-            document.getElementById('stat-mp').innerText = `MP: ${me.mp}/${me.max_mp}`;
+            document.getElementById('stat-hp').innerText    = `HP: ${me.hp}/${me.max_hp}`;
+            document.getElementById('stat-mp').innerText    = `MP: ${me.mp}/${me.max_mp}`;
+            document.getElementById('stat-level').innerText = `Level: ${me.level}`;
+            document.getElementById('stat-str').innerText   = `STR: ${me.stats.str}`;
+            document.getElementById('stat-dex').innerText   = `DEX: ${me.stats.dex}`;
+            document.getElementById('stat-int').innerText   = `INT: ${me.stats.int}`;
             if (me.weapon) {
                 document.getElementById('inventory-weapon').innerText = `• ${me.weapon.name}`;
             }
@@ -415,15 +451,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const actorName = (currentEntity && currentEntity.character_name) || currentActor || 'other player';
         if (gs.in_combat) {
             turnEl.innerText = isMyTurn ? 'Your Turn!' : `Waiting: ${actorName}`;
+            turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
+            actionInput.disabled = !isMyTurn;
+            sendBtn.disabled = !isMyTurn;
+            actionInput.placeholder = isMyTurn ? 'Describe your action...' : 'Waiting for others...';
         } else {
-            turnEl.innerText = isMyTurn ? 'Your turn to act!' : `Waiting for ${actorName}...`;
+            turnEl.innerText = 'Submit your action';
+            turnEl.style.color = '#4ade80';
+            actionInput.disabled = false;
+            sendBtn.disabled = false;
+            actionInput.placeholder = 'Describe your action...';
         }
-        turnEl.style.color = isMyTurn ? '#4ade80' : '#94a3b8';
-        actionInput.disabled = !isMyTurn;
-        sendBtn.disabled = !isMyTurn;
-        actionInput.placeholder = isMyTurn
-            ? 'Describe your action...'
-            : 'Waiting for others...';
 
         const enemyList   = document.getElementById('enemy-list');
         const placeholder = document.getElementById('enemy-placeholder');
@@ -436,11 +474,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 div.className = 'enemy-entry';
                 const pct = Math.max(0, Math.round((enemy.hp / enemy.max_hp) * 100));
                 div.innerHTML = `
-                    <p style="margin:4px 0; font-size:13px;">${enemy.character_name || enemy.id} (${enemy.role})</p>
+                    <p style="margin:4px 0; font-size:14px;">${enemy.character_name || enemy.id} (${enemy.role})</p>
                     <div style="background:#1e293b; border-radius:3px; height:6px; width:100%;">
                         <div style="background:#ef4444; height:6px; border-radius:3px; width:${pct}%;"></div>
                     </div>
-                    <p style="font-size:11px; opacity:0.6; margin:2px 0;">${enemy.hp}/${enemy.max_hp} HP</p>`;
+                    <p style="font-size:12px; opacity:0.6; margin:2px 0;">${enemy.hp}/${enemy.max_hp} HP</p>`;
                 enemyList.appendChild(div);
             });
         } else if (placeholder) {
@@ -458,6 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Disable while we wait — re-enabled when action_result arrives
         actionInput.disabled = true;
         sendBtn.disabled = true;
+        document.getElementById('thinking-indicator').style.display = 'flex';
 
         socket.emit("submit_action", {
             session_id:         currentSessionId,
