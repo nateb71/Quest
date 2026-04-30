@@ -64,11 +64,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Saved adventures dashboard ────────────────────────────────────────────
     async function loadSavedSessions() {
         const historyList = document.getElementById('historyList');
-        historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">Loading...</p>';
+        historyList.innerHTML = '<p class="center muted-text">Loading...</p>';
 
         const data = await apiRequest('/session/my-sessions');
         if (!data || !data.sessions || data.sessions.length === 0) {
-            historyList.innerHTML = '<p class="center" style="opacity:0.5; font-size:13px;">No recent games found.</p>';
+            historyList.innerHTML = '<p class="center muted-text">No recent games found.</p>';
             return;
         }
 
@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="save-card-info">
                     <span class="save-title">${title}</span>
                     <span class="save-meta">${charInfo}${chapterInfo ? ' &bull; ' + chapterInfo : ''}</span>
-                    <span class="save-meta" style="opacity:0.4;">${label} &bull; ${lastSaved}</span>
+                    <span class="save-meta">${label} &bull; ${lastSaved}</span>
                 </div>
                 <div class="save-card-actions"></div>
             `;

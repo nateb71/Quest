@@ -35,9 +35,9 @@
         <button class="secondary" id="logoutBtn">Logout</button>
     </div>
     <div class="history-section">
-        <h3>Recent Adventures</h3>
+        <h2>Recent Adventures</h2>
         <div id="historyList">
-            <p class="center" style="opacity:0.5; font-size:13px;">No recent games found.</p>
+            <p class="center muted-text">No recent games found.</p>
         </div>
     </div>
 </div>
@@ -68,15 +68,15 @@
     <h1>Select Your Class</h1>
     <div class="class-grid" id="classSelection">
         <div class="class-card" data-class="warrior">
-            <h3>Warrior</h3>
+            <h2>Warrior</h2>
             <p>STR 14 | HP: 30</p>
         </div>
         <div class="class-card" data-class="rogue">
-            <h3>Rogue</h3>
+            <h2>Rogue</h2>
             <p>DEX 15 | HP: 22</p>
         </div>
         <div class="class-card" data-class="mage">
-            <h3>Mage</h3>
+            <h2>Mage</h2>
             <p>INT 16 | HP: 18 | MP: 10</p>
         </div>
     </div>
@@ -90,35 +90,35 @@
     <h1>Choose Your Adventure</h1>
     <div class="adventure-grid" id="adventureSelection">
         <div class="class-card" data-theme="dungeon">
-            <h3>The Dungeon</h3>
+            <h2>The Dungeon</h2>
             <p>A labyrinth of ancient tunnels and forgotten traps</p>
         </div>
         <div class="class-card" data-theme="haunted forest">
-            <h3>Haunted Forest</h3>
+            <h2>Haunted Forest</h2>
             <p>Twisted woods where the dead refuse to rest</p>
         </div>
         <div class="class-card" data-theme="ancient ruins">
-            <h3>Ancient Ruins</h3>
+            <h2>Ancient Ruins</h2>
             <p>Crumbling temples hiding long-buried secrets</p>
         </div>
         <div class="class-card" data-theme="pirate ship">
-            <h3>Pirate Ship</h3>
+            <h2>Pirate Ship</h2>
             <p>A treacherous voyage on cursed and stormy seas</p>
         </div>
         <div class="class-card" data-theme="volcanic mountain">
-            <h3>Volcanic Mountain</h3>
+            <h2>Volcanic Mountain</h2>
             <p>Fiery peaks ruled by elemental warlords</p>
         </div>
         <div class="class-card" data-theme="cursed swamp">
-            <h3>Cursed Swamp</h3>
+            <h2>Cursed Swamp</h2>
             <p>Murky bogs teeming with dark enchantments</p>
         </div>
         <div class="class-card" data-theme="sky fortress">
-            <h3>Sky Fortress</h3>
+            <h2>Sky Fortress</h2>
             <p>A floating citadel drifting above the clouds</p>
         </div>
         <div class="class-card" data-theme="undead catacombs">
-            <h3>Undead Catacombs</h3>
+            <h2>Undead Catacombs</h2>
             <p>Tunnels beneath a fallen city, crawling with the risen dead</p>
         </div>
     </div>
@@ -129,11 +129,11 @@
 <div class="game-layout screen" id="game">
     <div class="sidebar">
         <div id="turn-indicator" style="font-weight:bold; text-align:center; margin-bottom:8px;"></div>
-        <p style="opacity:0.5; font-size:12px; text-align:center;">Round: <span id="round-number">1</span></p>
+        <p class="muted-text" style="text-align:center;">Round: <span id="round-number">1</span></p>
         <hr style="border-color:#334155; margin:10px 0;">
         <p id="adventure-title" style="font-size:12px; font-weight:bold; text-align:center; opacity:0.8;"></p>
-        <p id="chapter-info" style="font-size:11px; text-align:center; opacity:0.5;"></p>
-        <p style="font-size:11px; text-align:center; opacity:0.5;">Boss: <span id="boss-name">—</span></p>
+        <p id="chapter-info" class="muted-text" style="text-align:center;"></p>
+        <p class="muted-text" style="text-align:center;">Boss: <span id="boss-name">—</span></p>
     </div>
 
     <div>
@@ -151,7 +151,7 @@
     </div>
 
     <div class="sidebar">
-        <h3>Stats</h3>
+        <h2>Stats</h2>
         <div class="stat" id="stat-hp">HP: --</div>
         <div class="stat" id="stat-mp">MP: --</div>
         <div class="stat" id="stat-level">Level: --</div>
@@ -159,11 +159,11 @@
         <div class="stat" id="stat-dex">DEX: --</div>
         <div class="stat" id="stat-int">INT: --</div>
         <div id="enemy-list" style="margin-top:15px">
-            <h3>Enemies</h3>
-            <p id="enemy-placeholder" style="opacity:0.5; font-size:12px;">No enemies yet.</p>
+            <h2>Enemies</h2>
+            <p id="enemy-placeholder" class="muted-text">No enemies yet.</p>
         </div>
         <div id="inventory" style="margin-top:15px">
-            <h3>Weapon</h3>
+            <h2>Weapon</h2>
             <p id="inventory-weapon">--</p>
         </div>
         <button style="margin-top:20px" class="secondary" id="exitGameBtn">Exit</button>

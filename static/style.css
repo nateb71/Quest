@@ -113,7 +113,7 @@ h2, h3 {
   letter-spacing: 0.04em;
 }
 
-h3 { font-size: 15px; margin-bottom: 10px; }
+h2, h3 { font-size: 15px; margin-bottom: 10px; }
 
 /* ── Container cards ────────────────────────────────────────────────────────── */
 .container {
@@ -353,7 +353,7 @@ button:disabled {
   position: relative;
 }
 
-.class-card h3 {
+.class-card h2 {
   font-size: 13px;
   margin-bottom: 4px;
   color: var(--gold-light);
@@ -423,12 +423,17 @@ button:disabled {
   border-top: 1px solid var(--border);
 }
 
-.history-section h3 {
-  font-size: 14px;             /* slightly larger for readability without uppercase */
+.history-section h2 {
+  font-size: 14px;
   letter-spacing: 0.06em;
-  /* removed text-transform:uppercase — degrades readability & effective contrast */
   color: var(--mist-light);   /* #b09a70 on #1e1810 = 4.6:1 ✓ */
   margin-bottom: 14px;
+}
+
+/* Secondary/muted text — uses direct color instead of opacity to preserve contrast */
+.muted-text {
+  color: var(--mist-light);   /* #b09a70 on darkest bg = 4.5:1 ✓ */
+  font-size: 13px;
 }
 
 
